@@ -788,11 +788,31 @@ public class Utils
         return false;
     }
 
+    public static bool CanBindTcpPort(int port)
+    {
+        if (port < 1 || port > 65535) return false;
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        try
+        {
+            listener.ExclusiveAddressUse = true;
+            listener.Start();
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
     public static int GetFreePort(int defaultPort)
     {
         try
         {
-            if (!PortInUse(defaultPort))
+            if (!PortInUse(defaultPort) && CanBindTcpPort(defaultPort))
             {
                 return defaultPort;
             }

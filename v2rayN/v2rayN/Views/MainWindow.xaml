@@ -71,6 +71,7 @@
                                     Height="{StaticResource MenuItemHeight}"
                                     Header="{x:Static resx:ResUI.menuAddServerViaImage}" />
                                 <Separator Margin="-40,5" />
+                                <MenuItem x:Name="menuAddPsiphonServer" Height="{StaticResource MenuItemHeight}" Header="Add [Psiphon]" />
                                 <MenuItem
                                     x:Name="menuAddCustomServer"
                                     Height="{StaticResource MenuItemHeight}"
@@ -133,6 +134,22 @@
                                     x:Name="menuAddNaiveServer"
                                     Height="{StaticResource MenuItemHeight}"
                                     Header="{x:Static resx:ResUI.menuAddNaiveServer}" />
+                            </MenuItem>
+                        </Menu>
+                        <Separator />
+                        <Menu Margin="0,1" Style="{StaticResource ToolbarMenu}">
+                            <MenuItem x:Name="menuPsiphon" Padding="{StaticResource MarginLeftRight8}" AutomationProperties.Name="Psiphon modes">
+                                <MenuItem.Header>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock x:Name="txtPsiphonIcon" Margin="0,0,8,0" VerticalAlignment="Center" FontSize="18" FontWeight="Bold" Text="P" />
+                                        <TextBlock x:Name="txtPsiphonMode" />
+                                    </StackPanel>
+                                </MenuItem.Header>
+                                <MenuItem x:Name="menuPsiphonOff" Height="{StaticResource MenuItemHeight}" Header="Off" />
+                                <MenuItem x:Name="menuPsiphonOnly" Height="{StaticResource MenuItemHeight}" Header="Psiphon only" IsCheckable="True" />
+                                <MenuItem x:Name="menuPsiphonAfter" Height="{StaticResource MenuItemHeight}" Header="Psiphon after active config" IsCheckable="True" />
+                                <Separator Margin="-40,5" />
+                                <MenuItem x:Name="menuPsiphonSettings" Height="{StaticResource MenuItemHeight}" Header="Psiphon settings..." />
                             </MenuItem>
                         </Menu>
                         <Separator />

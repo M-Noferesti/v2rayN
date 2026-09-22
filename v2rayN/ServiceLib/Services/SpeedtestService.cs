@@ -277,6 +277,7 @@ public class SpeedtestService(Config config, Func<SpeedTestResult, Task> updateF
             processService = await CoreManager.Instance.LoadCoreConfigSpeedtest(selecteds);
             if (processService is null)
             {
+                foreach (var item in selecteds) await MarkDelayFailed(item);
                 return false;
             }
             await Task.Delay(1000, ct);
@@ -306,6 +307,7 @@ public class SpeedtestService(Config config, Func<SpeedTestResult, Task> updateF
                 catch (Exception ex)
                 {
                     Logging.SaveLog(_tag, ex);
+                    await MarkDelayFailed(it);
                 }
             });
         }
@@ -316,6 +318,8 @@ public class SpeedtestService(Config config, Func<SpeedTestResult, Task> updateF
         catch (Exception ex)
         {
             Logging.SaveLog(_tag, ex);
+            foreach (var item in selecteds) await MarkDelayFailed(item);
+            return false;
         }
         finally
         {
@@ -439,7 +443,7 @@ public class SpeedtestService(Config config, Func<SpeedTestResult, Task> updateF
                 processService = await CoreManager.Instance.LoadCoreConfigSpeedtest(it);
                 if (processService is null)
                 {
-                    await UpdateFunc(it.IndexId, "", ResUI.FailedToRunCore);
+                    await MarkDelayFailed(it);
                     return;
                 }
 
@@ -465,6 +469,7 @@ public class SpeedtestService(Config config, Func<SpeedTestResult, Task> updateF
             catch (Exception ex)
             {
                 Logging.SaveLog(_tag, ex);
+                await MarkDelayFailed(it);
             }
             finally
             {
@@ -474,6 +479,12 @@ public class SpeedtestService(Config config, Func<SpeedTestResult, Task> updateF
                 }
             }
         });
+    }
+
+    private async Task MarkDelayFailed(ServerTestItem item)
+    {
+        ProfileExManager.Instance.SetTestDelay(item.IndexId, -1);
+        await UpdateFunc(item.IndexId, "-1", ResUI.FailedToRunCore);
     }
 
     private async Task<int> DoRealPing(ServerTestItem it,

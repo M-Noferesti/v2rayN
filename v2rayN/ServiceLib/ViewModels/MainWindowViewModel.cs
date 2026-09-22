@@ -33,6 +33,7 @@ public partial class MainWindowViewModel : MyReactiveObject
     public ReactiveCommand<RxVoid, RxVoid> AddAnytlsServerCmd { get; }
     public ReactiveCommand<RxVoid, RxVoid> AddNaiveServerCmd { get; }
     public ReactiveCommand<RxVoid, RxVoid> AddCustomServerCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> AddPsiphonServerCmd { get; }
     public ReactiveCommand<RxVoid, RxVoid> AddCustomOutboundServerCmd { get; }
     public ReactiveCommand<RxVoid, RxVoid> AddPolicyGroupServerCmd { get; }
     public ReactiveCommand<RxVoid, RxVoid> AddProxyChainServerCmd { get; }
@@ -67,9 +68,24 @@ public partial class MainWindowViewModel : MyReactiveObject
     public ReactiveCommand<RxVoid, RxVoid> RegionalPresetIranCmd { get; }
 
     public ReactiveCommand<RxVoid, RxVoid> ReloadCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> TogglePsiphonCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> PsiphonOffCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> PsiphonOnlyCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> PsiphonAfterCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> PsiphonSettingsCmd { get; }
 
     [Reactive]
     public partial bool BlReloadEnabled { get; set; }
+
+    [Reactive]
+    public partial bool IsPsiphonEnabled { get; set; }
+
+    [Reactive]
+    public partial string PsiphonButtonText { get; set; } = "Psiphon: Off";
+
+    [Reactive] public partial bool IsPsiphonOnly { get; set; }
+    [Reactive] public partial bool IsPsiphonAfter { get; set; }
+    [Reactive] public partial string PsiphonIconColor { get; set; } = "#808080";
 
     [Reactive]
     public partial bool ShowClashUI { get; set; }
@@ -143,6 +159,10 @@ public partial class MainWindowViewModel : MyReactiveObject
         AddCustomServerCmd = ReactiveCommand.CreateFromTask(async () =>
         {
             await AddServerAsync(EConfigType.Custom);
+        });
+        AddPsiphonServerCmd = ReactiveCommand.CreateFromTask(async () =>
+        {
+            await AddServerAsync(EConfigType.Custom, ECoreType.Psiphon);
         });
         AddCustomOutboundServerCmd = ReactiveCommand.CreateFromTask(async () =>
         {
@@ -234,6 +254,11 @@ public partial class MainWindowViewModel : MyReactiveObject
         {
             await Reload();
         });
+        TogglePsiphonCmd = ReactiveCommand.CreateFromTask(TogglePsiphon);
+        PsiphonOffCmd = ReactiveCommand.CreateFromTask(DisablePsiphon);
+        PsiphonOnlyCmd = ReactiveCommand.CreateFromTask(async () => await SetPsiphonMode(false));
+        PsiphonAfterCmd = ReactiveCommand.CreateFromTask(async () => await SetPsiphonMode(true));
+        PsiphonSettingsCmd = ReactiveCommand.CreateFromTask(OpenPsiphonSettings);
 
         RegionalPresetDefaultCmd = ReactiveCommand.CreateFromTask(async () =>
         {
@@ -446,14 +471,23 @@ public partial class MainWindowViewModel : MyReactiveObject
 
     #region Add Servers
 
-    public async Task AddServerAsync(EConfigType eConfigType)
+    public async Task AddServerAsync(EConfigType eConfigType, ECoreType? coreType = null)
     {
         ProfileItem item = new()
         {
             Subid = _config.SubIndexId,
             ConfigType = eConfigType,
+            CoreType = coreType,
             IsSub = false,
         };
+
+        if (coreType == ECoreType.Psiphon)
+        {
+            item.Remarks = "Psiphon";
+            item.DisplayLog = true;
+            item.Address = Utils.GetTempPath($"psiphon-{Utils.GetGuid(false)}.json");
+            await File.WriteAllTextAsync(item.Address, EmbedUtils.GetEmbedText("ServiceLib.Sample.psiphon_default"));
+        }
 
         bool? ret = false;
         if (eConfigType is EConfigType.Custom or EConfigType.Outbound)
@@ -658,6 +692,152 @@ public partial class MainWindowViewModel : MyReactiveObject
 
     #region core job
 
+    private async Task TogglePsiphon()
+    {
+        if (IsPsiphonModeEnabled()) await DisablePsiphon();
+        else await SetPsiphonMode(true);
+    }
+
+    private async Task<ProfileItem?> GetPsiphonProfile()
+    {
+        if (!_config.PsiphonProfileId.IsNullOrEmpty())
+        {
+            var saved = await AppManager.Instance.GetProfileItem(_config.PsiphonProfileId);
+            if (saved?.CoreType == ECoreType.Psiphon) return saved;
+        }
+        var profiles = await AppManager.Instance.ProfileItems("") ?? [];
+        var existing = profiles.FirstOrDefault(item => item.CoreType == ECoreType.Psiphon);
+        if (existing != null) return existing;
+
+        var tempPath = Utils.GetTempPath($"psiphon-{Utils.GetGuid(false)}.json");
+        await File.WriteAllTextAsync(tempPath, EmbedUtils.GetEmbedText("ServiceLib.Sample.psiphon_default"));
+        var created = new ProfileItem
+        {
+            ConfigType = EConfigType.Custom,
+            CoreType = ECoreType.Psiphon,
+            Remarks = "Internal Psiphon",
+            Address = tempPath,
+            PreSocksPort = PsiphonConfigService.FindAvailablePort(),
+            DisplayLog = true,
+        };
+        created.SetProtocolExtra(created.GetProtocolExtra() with
+        {
+            PsiphonRegion = "",
+            PsiphonUpstreamPort = PsiphonConfigService.FindAvailablePort(),
+        });
+        if (await ConfigHandler.AddCustomServer(_config, created, true) != 0) return null;
+        _config.PsiphonProfileId = created.IndexId;
+        return created;
+    }
+
+    private bool IsPsiphonModeEnabled() => _config.PsiphonMode is "only" or "after";
+
+    private async Task MigrateLegacyPsiphonSelection()
+    {
+        var selected = await ConfigHandler.GetDefaultServer(_config);
+        if (selected?.CoreType != ECoreType.Psiphon) return;
+        var returnProfile = await AppManager.Instance.GetProfileItem(selected.GetProtocolExtra().PsiphonUpstreamProfileId ?? "");
+        if (returnProfile == null || returnProfile.CoreType == ECoreType.Psiphon)
+            returnProfile = (await AppManager.Instance.ProfileItems("")).FirstOrDefault(item => item.CoreType != ECoreType.Psiphon);
+        _config.PsiphonProfileId = selected.IndexId;
+        _config.PsiphonMode ??= _config.TunModeItem.EnableTun
+            ? selected.GetProtocolExtra().PsiphonUseUpstream == true ? "after" : "only"
+            : "off";
+        _config.IndexId = returnProfile?.IndexId ?? "";
+        await ConfigHandler.SaveConfig(_config);
+    }
+
+    private async Task SetPsiphonMode(bool useActiveConfig)
+    {
+        await MigrateLegacyPsiphonSelection();
+        var active = await ConfigHandler.GetDefaultServer(_config);
+        if (useActiveConfig && active == null)
+        {
+            NoticeManager.Instance.Enqueue("Choose a profile and set it as active first.");
+            return;
+        }
+        if (useActiveConfig && !PsiphonConfigService.IsSupportedUpstream(active!))
+        {
+            NoticeManager.Instance.Enqueue("Psiphon after config supports VMess, VLESS, Trojan, Shadowsocks, SOCKS or HTTP profiles.");
+            return;
+        }
+        var psiphon = await GetPsiphonProfile();
+        if (psiphon == null)
+        {
+            NoticeManager.Instance.Enqueue("Open Psiphon settings and create a Psiphon profile first.");
+            return;
+        }
+        var extra = psiphon.GetProtocolExtra();
+        var upstreamPort = extra.PsiphonUpstreamPort is > 0 and <= 65535
+            ? extra.PsiphonUpstreamPort.Value
+            : PsiphonConfigService.FindAvailablePort();
+        psiphon.SetProtocolExtra(extra with
+        {
+            PsiphonUseUpstream = useActiveConfig,
+            PsiphonUpstreamProfileId = useActiveConfig ? active!.IndexId : null,
+            PsiphonUpstreamPort = upstreamPort,
+        });
+        await SQLiteHelper.Instance.ReplaceAsync(psiphon);
+        _config.PsiphonMode = useActiveConfig ? "after" : "only";
+        _config.PsiphonProfileId = psiphon.IndexId;
+        _config.TunModeItem.EnableTun = true;
+        StatusBarViewModel.EnableTun = true;
+        await ConfigHandler.SaveConfig(_config);
+        UpdatePsiphonButton();
+        await ProfilesViewModel.RefreshServers();
+        if (Utils.IsWindows() && !Utils.IsAdministrator())
+        {
+            NoticeManager.Instance.Enqueue("Restarting as administrator to enable Psiphon and TUN.");
+            await AppManager.Instance.RebootAsAdmin();
+            return;
+        }
+        await Reload();
+    }
+
+    private async Task DisablePsiphon()
+    {
+        _config.PsiphonMode = "off";
+        _config.TunModeItem.EnableTun = false;
+        StatusBarViewModel.EnableTun = false;
+        CoreManager.Instance.CancelPendingPsiphonStartup();
+        await MigrateLegacyPsiphonSelection();
+        await ConfigHandler.SaveConfig(_config);
+        UpdatePsiphonButton();
+        await ProfilesViewModel.RefreshServers();
+        await Reload();
+    }
+
+    private async Task OpenPsiphonSettings()
+    {
+        var psiphon = await GetPsiphonProfile();
+        if (psiphon == null)
+        {
+            NoticeManager.Instance.Enqueue("Could not create the internal Psiphon settings.");
+            return;
+        }
+        var viewModel = new AddServer2ViewModel(psiphon);
+        if (await AppManager.Instance.WindowDialog.ShowDialogAsync(viewModel) == true)
+        {
+            await ProfilesViewModel.RefreshServers();
+            if (IsPsiphonModeEnabled()) await Reload();
+        }
+    }
+
+    private void UpdatePsiphonButton()
+    {
+        RxSchedulers.MainThreadScheduler.Schedule(() =>
+        {
+            var after = _config.PsiphonMode == "after";
+            var only = _config.PsiphonMode == "only";
+            var enabled = after || only;
+            IsPsiphonEnabled = enabled;
+            IsPsiphonAfter = after;
+            IsPsiphonOnly = only;
+            PsiphonButtonText = after ? "Psiphon: After" : only ? "Psiphon: Only" : "Psiphon: Off";
+            PsiphonIconColor = after ? "#2196F3" : only ? "#2EAD63" : "#808080";
+        });
+    }
+
     private bool _hasNextReloadJob = false;
     private readonly SemaphoreSlim _reloadSemaphore = new(1, 1);
 
@@ -687,13 +867,47 @@ public partial class MainWindowViewModel : MyReactiveObject
                     TabMainSelectedIndex = 0;
                 }
             });
+
+            if (!_config.TunModeItem.EnableTun && IsPsiphonModeEnabled())
+            {
+                _config.PsiphonMode = "off";
+                CoreManager.Instance.CancelPendingPsiphonStartup();
+                await ConfigHandler.SaveConfig(_config);
+            }
+            await MigrateLegacyPsiphonSelection();
+            await CoreManager.Instance.CoreStop();
             var profileItem = await ConfigHandler.GetDefaultServer(_config);
-            if (profileItem == null)
+            UpdatePsiphonButton();
+            if ((profileItem == null || profileItem.CoreType == ECoreType.Psiphon) && _config.PsiphonMode != "only")
             {
                 NoticeManager.Instance.Enqueue(ResUI.CheckServerSettings);
                 return;
             }
-            var allResult = await CoreConfigContextBuilder.BuildAll(_config, profileItem);
+            UpdatePsiphonButton();
+            var runProfile = profileItem;
+            if (IsPsiphonModeEnabled())
+            {
+                var psiphon = await GetPsiphonProfile();
+                if (psiphon == null)
+                {
+                    NoticeManager.Instance.Enqueue("The internal Psiphon profile is missing. Open Psiphon settings to create it.");
+                    return;
+                }
+                var after = _config.PsiphonMode == "after";
+                if (after && !PsiphonConfigService.IsSupportedUpstream(profileItem!))
+                {
+                    NoticeManager.Instance.Enqueue("The active profile cannot be used before Psiphon.");
+                    return;
+                }
+                psiphon.SetProtocolExtra(psiphon.GetProtocolExtra() with
+                {
+                    PsiphonUseUpstream = after,
+                    PsiphonUpstreamProfileId = after ? profileItem!.IndexId : null,
+                });
+                await SQLiteHelper.Instance.ReplaceAsync(psiphon);
+                runProfile = psiphon;
+            }
+            var allResult = await CoreConfigContextBuilder.BuildAll(_config, runProfile);
             if (NoticeManager.Instance.NotifyValidatorResult(allResult.CombinedValidatorResult) && !allResult.Success)
             {
                 return;
@@ -708,7 +922,7 @@ public partial class MainWindowViewModel : MyReactiveObject
             RxSchedulers.MainThreadScheduler.Schedule(async () =>
             {
                 var result = await StatusBarViewModel.TestServerAvailability();
-                if (result == null || profileItem.IndexId.IsNullOrEmpty())
+                if (result == null || profileItem == null || profileItem.IndexId.IsNullOrEmpty())
                 {
                     return;
                 }

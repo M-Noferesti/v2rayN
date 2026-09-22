@@ -14,6 +14,9 @@ public class CoreManager
 
     private ProcessService? _processService;
     private ProcessService? _processPreService;
+    private ProcessService? _psiphonUpstreamService;
+    private TaskCompletionSource<bool>? _psiphonTunnelReady;
+    public void CancelPendingPsiphonStartup() => _psiphonTunnelReady?.TrySetResult(false);
     private bool _linuxSudo = false;
     private Func<bool, string, Task>? _updateFunc;
     private const string _tag = "CoreHandler";
@@ -79,7 +82,9 @@ public class CoreManager
             return;
         }
 
-        await UpdateFunc(false, $"{node.GetSummary()}");
+        await UpdateFunc(false, node.CoreType == ECoreType.Psiphon
+            ? node.GetProtocolExtra().PsiphonUseUpstream == true ? "Psiphon after active config" : "Psiphon only"
+            : node.GetSummary());
         await UpdateFunc(false, $"{Utils.GetRuntimeInfo()}");
         await UpdateFunc(false, string.Format(ResUI.StartService, DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss")));
         await CoreStop();
@@ -91,15 +96,72 @@ public class CoreManager
             await WindowsUtils.RemoveTunDevice();
         }
 
+        if (node.CoreType == ECoreType.Psiphon && node.GetProtocolExtra().PsiphonUseUpstream == true)
+        {
+            try
+            {
+                var upstream = await PsiphonConfigService.GenerateUpstream(mainContext.AppConfig, node);
+                if (!upstream.Success)
+                {
+                    await UpdateFunc(true, upstream.Msg);
+                    return;
+                }
+                const string upstreamFile = "configPsiphonUpstream.json";
+                await File.WriteAllTextAsync(Utils.GetBinConfigPath(upstreamFile), upstream.Data!.ToString());
+                _psiphonUpstreamService = await RunProcess(CoreInfoManager.Instance.GetCoreInfo(ECoreType.Xray), upstreamFile, true, false);
+                if (_psiphonUpstreamService == null
+                    || !await WaitForSocks(node.GetProtocolExtra().PsiphonUpstreamPort ?? 1089, _psiphonUpstreamService))
+                {
+                    await CoreStop();
+                    await UpdateFunc(true, "Psiphon's upstream failed to start. No direct fallback was used.");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                await CoreStop();
+                await UpdateFunc(true, $"Psiphon upstream: {ex.Message}");
+                return;
+            }
+        }
+        if (node.CoreType == ECoreType.Psiphon)
+        {
+            _psiphonTunnelReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
         await CoreStart(mainContext);
+        if (node.CoreType == ECoreType.Psiphon
+            && (_processService == null || !await WaitForSocks(node.PreSocksPort ?? 0, _processService)))
+        {
+            await CoreStop();
+            await UpdateFunc(true, "Psiphon failed to open its local SOCKS proxy.");
+            return;
+        }
+        if (node.CoreType == ECoreType.Psiphon
+            && (_psiphonTunnelReady == null
+                || await Task.WhenAny(_psiphonTunnelReady.Task, Task.Delay(TimeSpan.FromSeconds(45))) != _psiphonTunnelReady.Task
+                || !await _psiphonTunnelReady.Task))
+        {
+            await CoreStop();
+            await UpdateFunc(true, "Psiphon could not establish a tunnel. TUN was not started; check the active upstream profile or use Psiphon only.");
+            return;
+        }
         await WaitForProxyPort(preContext);
-        await CoreStartPreService(preContext);
+        await CoreStartPreService(preContext, node);
+        if (node.CoreType == ECoreType.Psiphon && (preContext == null || _processPreService == null
+            || !await WaitForSocks(AppManager.Instance.GetLocalPort(EInboundProtocol.socks), _processPreService)))
+        {
+            await CoreStop();
+            await UpdateFunc(true, "Psiphon's local routing service failed to start. Check the Xray core and routing assets.");
+            return;
+        }
 
         AppManager.Instance.RunningCoreType = preContext?.RunCoreType ?? mainContext.RunCoreType;
 
         if (_processService != null)
         {
-            await UpdateFunc(true, $"{node.GetSummary()}");
+            await UpdateFunc(true, node.CoreType == ECoreType.Psiphon
+                ? node.GetProtocolExtra().PsiphonUseUpstream == true ? "Psiphon after active config" : "Psiphon only"
+                : node.GetSummary());
         }
     }
 
@@ -167,6 +229,12 @@ public class CoreManager
                 _processPreService.Dispose();
                 _processPreService = null;
             }
+            if (_psiphonUpstreamService != null)
+            {
+                await _psiphonUpstreamService.StopAsync();
+                _psiphonUpstreamService.Dispose();
+                _psiphonUpstreamService = null;
+            }
         }
         catch (Exception ex)
         {
@@ -175,6 +243,33 @@ public class CoreManager
     }
 
     #region Private
+
+    private static async Task<bool> WaitForSocks(int port, ProcessService process)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!timeout.IsCancellationRequested && !process.HasExited)
+        {
+            try
+            {
+                using var client = new TcpClient();
+                using var attempt = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+                attempt.CancelAfter(500);
+                await client.ConnectAsync(IPAddress.Loopback, port, attempt.Token);
+                var stream = client.GetStream();
+                await stream.WriteAsync(new byte[] { 5, 1, 0 }, attempt.Token);
+                var reply = new byte[2];
+                await stream.ReadExactlyAsync(reply, attempt.Token);
+                if (reply[0] == 5 && reply[1] == 0)
+                {
+                    return !process.HasExited;
+                }
+            }
+            catch (Exception ex) when (ex is SocketException or IOException or OperationCanceledException) { }
+            try { await Task.Delay(100, timeout.Token); }
+            catch (OperationCanceledException) { break; }
+        }
+        return false;
+    }
 
     private async Task CoreStart(CoreConfigContext context)
     {
@@ -191,7 +286,7 @@ public class CoreManager
         _processService = proc;
     }
 
-    private async Task CoreStartPreService(CoreConfigContext? preContext)
+    private async Task CoreStartPreService(CoreConfigContext? preContext, ProfileItem mainNode)
     {
         if (_processService is { HasExited: false } && preContext != null)
         {
@@ -200,6 +295,22 @@ public class CoreManager
             var result = await CoreConfigHandler.GenerateClientConfig(preContext, fileName);
             if (result.Success)
             {
+                if (preCoreType == ECoreType.sing_box && preContext.IsTunEnabled)
+                {
+                    IPAddress[] upstreamAddresses = [];
+                    var isPsiphon = mainNode.CoreType == ECoreType.Psiphon;
+                    var upstream = !isPsiphon ? mainNode
+                        : mainNode.GetProtocolExtra().PsiphonUseUpstream == true
+                            ? await AppManager.Instance.GetProfileItem(mainNode.GetProtocolExtra().PsiphonUpstreamProfileId ?? "")
+                            : null;
+                    if (!string.IsNullOrWhiteSpace(upstream?.Address))
+                    {
+                        if (IPAddress.TryParse(upstream.Address, out var address)) upstreamAddresses = [address];
+                        else upstreamAddresses = await Dns.GetHostAddressesAsync(upstream.Address);
+                    }
+                    await File.WriteAllTextAsync(fileName,
+                        PsiphonConfigService.SimplifyTunFrontend(await File.ReadAllTextAsync(fileName), upstreamAddresses, preserveRuleSets: !isPsiphon));
+                }
                 var coreInfo = CoreInfoManager.Instance.GetCoreInfo(preCoreType);
                 var proc = await RunProcess(coreInfo, Global.CorePreConfigFileName, true, true, preContext.IsTunEnabled);
                 if (proc is null)
@@ -213,6 +324,17 @@ public class CoreManager
 
     private async Task UpdateFunc(bool notify, string msg)
     {
+        PsiphonConfigService.CaptureAvailableRegions(msg);
+        try
+        {
+            var notice = JsonNode.Parse(msg);
+            if (notice?["noticeType"]?.GetValue<string>() == "Tunnels"
+                && notice["data"]?["count"]?.GetValue<int>() > 0)
+            {
+                _psiphonTunnelReady?.TrySetResult(true);
+            }
+        }
+        catch { }
         await _updateFunc?.Invoke(notify, msg);
     }
 
@@ -346,7 +468,7 @@ public class CoreManager
             displayLog: displayLog,
             redirectInput: false,
             environmentVars: environmentVars,
-            updateFunc: _updateFunc
+            updateFunc: async (notify, msg) => await UpdateFunc(notify, msg)
         );
 
         await procService.StartAsync();

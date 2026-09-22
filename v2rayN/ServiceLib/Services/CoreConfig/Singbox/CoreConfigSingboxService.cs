@@ -120,7 +120,7 @@ public partial class CoreConfigSingboxService(CoreConfigContext context)
                 }
 
                 //find unused port
-                var port = initPort;
+                var port = 0;
                 for (var k = initPort; k < Global.MaxPort; k++)
                 {
                     if (lstIpEndPoints?.FindIndex(_it => _it.Port == k) >= 0)
@@ -131,6 +131,7 @@ public partial class CoreConfigSingboxService(CoreConfigContext context)
                     {
                         continue;
                     }
+                    if (!Utils.CanBindTcpPort(k)) continue;
                     //found
                     port = k;
                     initPort = port + 1;
@@ -138,7 +139,7 @@ public partial class CoreConfigSingboxService(CoreConfigContext context)
                 }
 
                 //Port In Used
-                if (lstIpEndPoints?.FindIndex(_it => _it.Port == port) >= 0)
+                if (port == 0)
                 {
                     continue;
                 }

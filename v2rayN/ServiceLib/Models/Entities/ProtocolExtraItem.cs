@@ -2,6 +2,11 @@ namespace ServiceLib.Models.Entities;
 
 public record ProtocolExtraItem
 {
+    // null preserves a region from an imported configuration; empty means Automatic.
+    public string? PsiphonRegion { get; init; }
+    public bool? PsiphonUseUpstream { get; init; }
+    public string? PsiphonUpstreamProfileId { get; init; }
+    public int? PsiphonUpstreamPort { get; init; }
     public bool? Uot { get; init; }
     public string? CongestionControl { get; init; }
 

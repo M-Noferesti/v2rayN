@@ -47,6 +47,7 @@ public partial class MainWindow
             this.BindCommand(ViewModel, vm => vm.AddAnytlsServerCmd, v => v.menuAddAnytlsServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddNaiveServerCmd, v => v.menuAddNaiveServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddCustomServerCmd, v => v.menuAddCustomServer).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.AddPsiphonServerCmd, v => v.menuAddPsiphonServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddCustomOutboundServerCmd, v => v.menuAddCustomOutboundServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddPolicyGroupServerCmd, v => v.menuAddPolicyGroupServer).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.AddProxyChainServerCmd, v => v.menuAddProxyChainServer).DisposeWith(disposables);
@@ -75,6 +76,15 @@ public partial class MainWindow
             this.BindCommand(ViewModel, vm => vm.RegionalPresetIranCmd, v => v.menuRegionalPresetsIran).DisposeWith(disposables);
 
             this.BindCommand(ViewModel, vm => vm.ReloadCmd, v => v.menuReload).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.PsiphonOffCmd, v => v.menuPsiphonOff).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.PsiphonOnlyCmd, v => v.menuPsiphonOnly).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.PsiphonAfterCmd, v => v.menuPsiphonAfter).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.PsiphonSettingsCmd, v => v.menuPsiphonSettings).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.PsiphonButtonText, v => v.txtPsiphonMode.Text).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.PsiphonIconColor, v => v.txtPsiphonIcon.Foreground,
+                color => (Brush)new BrushConverter().ConvertFromString(color)!).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.IsPsiphonOnly, v => v.menuPsiphonOnly.IsChecked).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.IsPsiphonAfter, v => v.menuPsiphonAfter.IsChecked).DisposeWith(disposables);
             this.OneWayBind(ViewModel, vm => vm.BlReloadEnabled, v => v.menuReload.IsEnabled).DisposeWith(disposables);
 
             this.OneWayBind(ViewModel, vm => vm.BlNewUpdate, v => v.btnNewUpdate.Visibility).DisposeWith(disposables);

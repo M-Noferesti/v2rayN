@@ -7,6 +7,8 @@ public class Config
 
     public string IndexId { get; set; }
     public string SubIndexId { get; set; }
+    public string? PsiphonMode { get; set; }
+    public string? PsiphonProfileId { get; set; }
 
     #endregion property
 

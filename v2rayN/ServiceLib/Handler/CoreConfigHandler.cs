@@ -17,6 +17,7 @@ public static class CoreConfigHandler
         {
             result = node.CoreType switch
             {
+                ECoreType.Psiphon => await PsiphonConfigService.Generate(context),
                 ECoreType.mihomo => await new CoreConfigClashService(config, context.IsTunEnabled).GenerateClientCustomConfig(node, fileName),
                 _ => await GenerateClientCustomConfig(node, fileName)
             };

@@ -11,7 +11,7 @@
     xmlns:vms="clr-namespace:ServiceLib.ViewModels;assembly=ServiceLib"
     Title="{x:Static resx:ResUI.menuAddCustomServer}"
     Width="700"
-    Height="500"
+    Height="720"
     x:TypeArguments="vms:AddServer2ViewModel"
     ShowInTaskbar="False"
     Style="{StaticResource WindowGlobal}"
@@ -195,6 +195,7 @@
                         AcceptsReturn="True"
                         Style="{StaticResource MyOutlinedTextBox}" />
                     <StackPanel
+                        x:Name="panelCustomTips"
                         Grid.Row="2"
                         Grid.Column="1"
                         Grid.ColumnSpan="2">
@@ -255,6 +256,21 @@
                         Text="{x:Static resx:ResUI.TbCustomOutboundTip}"
                         TextWrapping="Wrap" />
                 </Grid>
+                <StackPanel x:Name="panelPsiphon" Grid.Row="7" Grid.ColumnSpan="3" Margin="8" Visibility="Collapsed">
+                    <TextBlock Text="Psiphon" Style="{StaticResource ModuleTitle}" />
+                    <Button x:Name="btnPsiphonDefault" Content="Use public Psiphon configuration" HorizontalAlignment="Left" Margin="0,8" />
+                    <TextBlock Text="Exit country" Margin="0,4" />
+                    <ComboBox x:Name="cmbPsiphonRegion" DisplayMemberPath="Name" SelectedValuePath="Code" Width="350" HorizontalAlignment="Left" />
+                    <TextBlock Text="Country requests depend on reachable Psiphon servers. Automatic chooses the best available." TextWrapping="Wrap" Margin="0,4" />
+                    <CheckBox x:Name="chkPsiphonUpstream" Content="Connect through a V2Ray profile" Margin="0,8" />
+                    <TextBlock Text="Upstream profile (used when the switch is on)" Margin="0,4" />
+                    <ComboBox x:Name="cmbPsiphonUpstream" DisplayMemberPath="Remarks" SelectedValuePath="IndexId" Width="350" HorizontalAlignment="Left" />
+                    <StackPanel Orientation="Horizontal" Margin="0,8">
+                        <TextBlock Text="Upstream local port" VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <TextBox x:Name="txtPsiphonUpstreamPort" Width="90" />
+                    </StackPanel>
+                    <TextBlock Text="Switch off: direct Psiphon. Switch on: the chosen profile carries Psiphon; the selected country is the final exit. The main-window Psiphon button enables TUN automatically." TextWrapping="Wrap" />
+                </StackPanel>
             </Grid>
         </ScrollViewer>
     </DockPanel>

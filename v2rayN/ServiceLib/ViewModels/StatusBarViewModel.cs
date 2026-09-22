@@ -436,6 +436,12 @@ public partial class StatusBarViewModel : MyReactiveObject
 
         _config.TunModeItem.EnableTun = EnableTun;
 
+        if (!EnableTun && _config.PsiphonMode is "only" or "after")
+        {
+            _config.PsiphonMode = "off";
+            CoreManager.Instance.CancelPendingPsiphonStartup();
+        }
+
         if (EnableTun && AllowEnableTun() == false)
         {
             // When running as a non-administrator, reboot to administrator mode

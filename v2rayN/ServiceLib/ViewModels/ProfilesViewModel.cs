@@ -399,6 +399,12 @@ public partial class ProfilesViewModel : MyReactiveObject
     {
         var lstModel = await AppManager.Instance.ProfileModels(_config.SubIndexId, filter);
 
+        // Psiphon is an internal overlay, not a server the user needs to select.
+        if (!_config.PsiphonProfileId.IsNullOrEmpty())
+        {
+            lstModel?.RemoveAll(item => item.IndexId == _config.PsiphonProfileId);
+        }
+
         await ConfigHandler.SetDefaultServer(_config, lstModel);
 
         var lstServerStat = (_config.GuiItem.EnableStatistics ? StatisticsManager.Instance.ServerStat : null) ?? [];

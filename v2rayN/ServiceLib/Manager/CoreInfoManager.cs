@@ -105,6 +105,15 @@ public sealed class CoreInfoManager
         [
             new CoreInfo
                 {
+                    CoreType = ECoreType.Psiphon,
+                    CoreExes = ["psiphon-tunnel-core", "psiphon-tunnel-core-i686"],
+                    Arguments = "-config {0}",
+                    AbsolutePath = true,
+                    VersionArg = "-version",
+                    Url = "https://github.com/Psiphon-Labs/psiphon-tunnel-core",
+                },
+            new CoreInfo
+                {
                     CoreType = ECoreType.v2rayN,
                     Url = GetCoreUrl(ECoreType.v2rayN),
                     ReleaseApiUrl = urlN.Replace(Global.GithubUrl, Global.GithubApiUrl),
