@@ -16,15 +16,21 @@ public class CoreManager
     private ProcessService? _processPreService;
     private ProcessService? _psiphonUpstreamService;
     private TaskCompletionSource<bool>? _psiphonTunnelReady;
+    private CancellationTokenSource? _psiphonWatchdogCts;
+    private Func<Task>? _psiphonRecoveryFunc;
+    private int _psiphonRecoveryRunning;
+    private int _psiphonTunnelCount;
+    private int _psiphonSocksPort;
     public void CancelPendingPsiphonStartup() => _psiphonTunnelReady?.TrySetResult(false);
     private bool _linuxSudo = false;
     private Func<bool, string, Task>? _updateFunc;
     private const string _tag = "CoreHandler";
 
-    public async Task Init(Config config, Func<bool, string, Task> updateFunc)
+    public async Task Init(Config config, Func<bool, string, Task> updateFunc, Func<Task>? psiphonRecoveryFunc = null)
     {
         _config = config;
         _updateFunc = updateFunc;
+        _psiphonRecoveryFunc = psiphonRecoveryFunc;
 
         //Copy the bin folder to the storage location (for init)
         if (Environment.GetEnvironmentVariable(Global.LocalAppData) == "1")
@@ -163,6 +169,10 @@ public class CoreManager
                 ? node.GetProtocolExtra().PsiphonUseUpstream == true ? "Psiphon after active config" : "Psiphon only"
                 : node.GetSummary());
         }
+        if (node.CoreType == ECoreType.Psiphon && _processService is { HasExited: false })
+        {
+            StartPsiphonWatchdog(_processService, node.PreSocksPort ?? 0);
+        }
     }
 
     public async Task<ProcessService?> LoadCoreConfigSpeedtest(List<ServerTestItem> selecteds)
@@ -208,6 +218,8 @@ public class CoreManager
 
     public async Task CoreStop()
     {
+        StopPsiphonWatchdog();
+        CancelPendingPsiphonStartup();
         try
         {
             if (_linuxSudo)
@@ -243,6 +255,130 @@ public class CoreManager
     }
 
     #region Private
+
+    private void StartPsiphonWatchdog(ProcessService process, int socksPort)
+    {
+        StopPsiphonWatchdog();
+        if (socksPort is < 1 or > 65535 || _psiphonRecoveryFunc == null)
+        {
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        Volatile.Write(ref _psiphonTunnelCount, 1);
+        Volatile.Write(ref _psiphonSocksPort, socksPort);
+        _psiphonWatchdogCts = cts;
+        _ = MonitorPsiphon(process, socksPort, cts.Token);
+    }
+
+    private void StopPsiphonWatchdog()
+    {
+        var cts = Interlocked.Exchange(ref _psiphonWatchdogCts, null);
+        Volatile.Write(ref _psiphonTunnelCount, 0);
+        Volatile.Write(ref _psiphonSocksPort, 0);
+        if (cts == null) return;
+        try { cts.Cancel(); }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task MonitorPsiphon(ProcessService process, int socksPort, CancellationToken token)
+    {
+        try
+        {
+            var failedChecks = 0;
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), token);
+                if (!ReferenceEquals(process, _processService)) return;
+
+                var healthy = !process.HasExited
+                    && Volatile.Read(ref _psiphonTunnelCount) > 0
+                    && await ProbeSocks(socksPort, token);
+                failedChecks = healthy ? 0 : failedChecks + 1;
+                if (failedChecks < 2) continue;
+
+                if (!ShouldRecoverPsiphon(_config.TunModeItem.EnableTun, _config.PsiphonMode)) return;
+                await RecoverPsiphon();
+                return;
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Logging.SaveLog(_tag, ex);
+        }
+    }
+
+    public static bool ShouldRecoverPsiphon(bool tunEnabled, string? mode) =>
+        tunEnabled && mode is "only" or "after";
+
+    private async Task RecoverPsiphon()
+    {
+        if (_psiphonRecoveryFunc == null
+            || Interlocked.CompareExchange(ref _psiphonRecoveryRunning, 1, 0) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await UpdateFunc(true, "Psiphon disconnected. Reconnecting automatically...");
+            var delays = new[] { 2, 5, 10, 20, 30 };
+            foreach (var delaySeconds in delays)
+            {
+                if (!ShouldRecoverPsiphon(_config.TunModeItem.EnableTun, _config.PsiphonMode)) return;
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+                if (!ShouldRecoverPsiphon(_config.TunModeItem.EnableTun, _config.PsiphonMode)) return;
+
+                try
+                {
+                    await _psiphonRecoveryFunc();
+                }
+                catch (Exception ex)
+                {
+                    Logging.SaveLog(_tag, ex);
+                }
+
+                if (!ShouldRecoverPsiphon(_config.TunModeItem.EnableTun, _config.PsiphonMode)) return;
+                await Task.Delay(TimeSpan.FromSeconds(2));
+                var socksPort = Volatile.Read(ref _psiphonSocksPort);
+                if (_processService is { HasExited: false }
+                    && _processPreService is { HasExited: false }
+                    && Volatile.Read(ref _psiphonTunnelCount) > 0
+                    && socksPort > 0
+                    && await ProbeSocks(socksPort, CancellationToken.None))
+                {
+                    await UpdateFunc(true, "Psiphon reconnected.");
+                    return;
+                }
+            }
+            await UpdateFunc(true, "Psiphon automatic reconnect failed. Use Reload to try again.");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _psiphonRecoveryRunning, 0);
+        }
+    }
+
+    private static async Task<bool> ProbeSocks(int port, CancellationToken token)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(2));
+            await client.ConnectAsync(IPAddress.Loopback, port, timeout.Token);
+            var stream = client.GetStream();
+            await stream.WriteAsync(new byte[] { 5, 1, 0 }, timeout.Token);
+            var reply = new byte[2];
+            await stream.ReadExactlyAsync(reply, timeout.Token);
+            return reply[0] == 5 && reply[1] == 0;
+        }
+        catch (Exception ex) when (ex is SocketException or IOException or OperationCanceledException)
+        {
+            return false;
+        }
+    }
 
     private static async Task<bool> WaitForSocks(int port, ProcessService process)
     {
@@ -328,10 +464,11 @@ public class CoreManager
         try
         {
             var notice = JsonNode.Parse(msg);
-            if (notice?["noticeType"]?.GetValue<string>() == "Tunnels"
-                && notice["data"]?["count"]?.GetValue<int>() > 0)
+            if (notice?["noticeType"]?.GetValue<string>() == "Tunnels")
             {
-                _psiphonTunnelReady?.TrySetResult(true);
+                var count = notice["data"]?["count"]?.GetValue<int>() ?? 0;
+                Volatile.Write(ref _psiphonTunnelCount, count);
+                if (count > 0) _psiphonTunnelReady?.TrySetResult(true);
             }
         }
         catch { }

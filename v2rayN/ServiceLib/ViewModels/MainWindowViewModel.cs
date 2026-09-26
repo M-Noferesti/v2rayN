@@ -354,7 +354,7 @@ public partial class MainWindowViewModel : MyReactiveObject
         await ConfigHandler.InitBuiltinDNS(_config);
         await ConfigHandler.InitBuiltinFullConfigTemplate(_config);
         await ProfileExManager.Instance.Init();
-        await CoreManager.Instance.Init(_config, UpdateHandler);
+        await CoreManager.Instance.Init(_config, UpdateHandler, Reload);
         await CertPemManager.Instance.Init(_config);
         TaskManager.Instance.RegUpdateTask(_config, UpdateTaskHandler);
 

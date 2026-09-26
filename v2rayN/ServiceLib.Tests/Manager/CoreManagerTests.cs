@@ -3,6 +3,17 @@ namespace ServiceLib.Tests.Manager;
 public class CoreManagerTests
 {
     [Test]
+    [Arguments(true, "only", true)]
+    [Arguments(true, "after", true)]
+    [Arguments(false, "only", false)]
+    [Arguments(true, "off", false)]
+    [Arguments(true, null, false)]
+    public async Task ShouldRecoverPsiphonRespectsTunAndMode(bool tunEnabled, string? mode, bool expected)
+    {
+        await CoreManager.ShouldRecoverPsiphon(tunEnabled, mode).Should().BeEqualTo(expected);
+    }
+
+    [Test]
     [Arguments(ECoreType.sing_box)]
     [Arguments(ECoreType.mihomo)]
     [Arguments(ECoreType.Xray)]
