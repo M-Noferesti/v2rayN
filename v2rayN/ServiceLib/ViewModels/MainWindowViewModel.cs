@@ -354,7 +354,7 @@ public partial class MainWindowViewModel : MyReactiveObject
         await ConfigHandler.InitBuiltinDNS(_config);
         await ConfigHandler.InitBuiltinFullConfigTemplate(_config);
         await ProfileExManager.Instance.Init();
-        await CoreManager.Instance.Init(_config, UpdateHandler, Reload);
+        await CoreManager.Instance.Init(_config, UpdateHandler, Reload, DisablePsiphonAfterFailure);
         await CertPemManager.Instance.Init(_config);
         TaskManager.Instance.RegUpdateTask(_config, UpdateTaskHandler);
 
@@ -807,6 +807,19 @@ public partial class MainWindowViewModel : MyReactiveObject
         await Reload();
     }
 
+    private async Task DisablePsiphonAfterFailure()
+    {
+        if (!PsiphonConfigService.DisableFailedMode(_config)) return;
+
+        CoreManager.Instance.CancelPendingPsiphonStartup();
+        await MigrateLegacyPsiphonSelection();
+        await ConfigHandler.SaveConfig(_config);
+        UpdatePsiphonButton();
+        await ProfilesViewModel.RefreshServers();
+        NoticeManager.Instance.Enqueue("Psiphon stopped. Switching to the active profile with TUN still enabled.");
+        await Reload();
+    }
+
     private async Task OpenPsiphonSettings()
     {
         var psiphon = await GetPsiphonProfile();
@@ -891,12 +904,14 @@ public partial class MainWindowViewModel : MyReactiveObject
                 if (psiphon == null)
                 {
                     NoticeManager.Instance.Enqueue("The internal Psiphon profile is missing. Open Psiphon settings to create it.");
+                    await DisablePsiphonAfterFailure();
                     return;
                 }
                 var after = _config.PsiphonMode == "after";
                 if (after && !PsiphonConfigService.IsSupportedUpstream(profileItem!))
                 {
                     NoticeManager.Instance.Enqueue("The active profile cannot be used before Psiphon.");
+                    await DisablePsiphonAfterFailure();
                     return;
                 }
                 psiphon.SetProtocolExtra(psiphon.GetProtocolExtra() with
@@ -908,8 +923,10 @@ public partial class MainWindowViewModel : MyReactiveObject
                 runProfile = psiphon;
             }
             var allResult = await CoreConfigContextBuilder.BuildAll(_config, runProfile);
-            if (NoticeManager.Instance.NotifyValidatorResult(allResult.CombinedValidatorResult) && !allResult.Success)
+            NoticeManager.Instance.NotifyValidatorResult(allResult.CombinedValidatorResult);
+            if (!allResult.Success)
             {
+                if (IsPsiphonModeEnabled()) await DisablePsiphonAfterFailure();
                 return;
             }
 

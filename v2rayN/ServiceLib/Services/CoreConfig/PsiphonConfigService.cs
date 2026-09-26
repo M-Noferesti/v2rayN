@@ -3,6 +3,14 @@ namespace ServiceLib.Services.CoreConfig;
 /// <summary>Adapts an imported Psiphon network configuration to a managed local proxy.</summary>
 public static class PsiphonConfigService
 {
+    public static bool DisableFailedMode(Config config)
+    {
+        if (config.PsiphonMode is not ("only" or "after")) return false;
+        config.PsiphonMode = "off";
+        // A failed overlay must not change the user's separate TUN choice.
+        return true;
+    }
+
     public static int FindAvailablePort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);

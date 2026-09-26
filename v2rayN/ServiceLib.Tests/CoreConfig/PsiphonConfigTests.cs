@@ -6,6 +6,24 @@ namespace ServiceLib.Tests.CoreConfig;
 public class PsiphonConfigTests
 {
     [Test]
+    [Arguments("only")]
+    [Arguments("after")]
+    public async Task FailedPsiphonFallsBackWithoutDisablingTun(string mode)
+    {
+        var config = new ServiceLib.Models.Configs.Config
+        {
+            IndexId = "active-profile",
+            PsiphonMode = mode,
+            TunModeItem = new() { EnableTun = true },
+        };
+
+        await PsiphonConfigService.DisableFailedMode(config).Should().BeTrue();
+        await config.PsiphonMode.Should().BeEqualTo("off");
+        await config.TunModeItem.EnableTun.Should().BeTrue();
+        await config.IndexId.Should().BeEqualTo("active-profile");
+    }
+
+    [Test]
     public async Task NormalTunProtection_PreservesRoutingAndExistingExclusions()
     {
         const string source = """

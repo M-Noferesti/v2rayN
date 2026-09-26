@@ -108,7 +108,17 @@ public class ProcessService : IDisposable
             }
             catch { }
 
-            await Task.Delay(100);
+            // The next core may bind the same local proxy port. Wait until this process
+            // has actually released it before starting the replacement.
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                await _process.WaitForExitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                await _updateFunc?.Invoke(true, $"Core process {_process.Id} did not exit after being stopped.");
+            }
         }
         catch (Exception ex)
         {

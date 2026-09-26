@@ -18,6 +18,7 @@ public class CoreManager
     private TaskCompletionSource<bool>? _psiphonTunnelReady;
     private CancellationTokenSource? _psiphonWatchdogCts;
     private Func<Task>? _psiphonRecoveryFunc;
+    private Func<Task>? _psiphonFailureFunc;
     private int _psiphonRecoveryRunning;
     private int _psiphonTunnelCount;
     private int _psiphonSocksPort;
@@ -26,11 +27,13 @@ public class CoreManager
     private Func<bool, string, Task>? _updateFunc;
     private const string _tag = "CoreHandler";
 
-    public async Task Init(Config config, Func<bool, string, Task> updateFunc, Func<Task>? psiphonRecoveryFunc = null)
+    public async Task Init(Config config, Func<bool, string, Task> updateFunc,
+        Func<Task>? psiphonRecoveryFunc = null, Func<Task>? psiphonFailureFunc = null)
     {
         _config = config;
         _updateFunc = updateFunc;
         _psiphonRecoveryFunc = psiphonRecoveryFunc;
+        _psiphonFailureFunc = psiphonFailureFunc;
 
         //Copy the bin folder to the storage location (for init)
         if (Environment.GetEnvironmentVariable(Global.LocalAppData) == "1")
@@ -85,6 +88,7 @@ public class CoreManager
         if (result.Success != true)
         {
             await UpdateFunc(true, result.Msg);
+            if (node.CoreType == ECoreType.Psiphon) await DisableFailedPsiphon();
             return;
         }
 
@@ -110,6 +114,7 @@ public class CoreManager
                 if (!upstream.Success)
                 {
                     await UpdateFunc(true, upstream.Msg);
+                    await DisableFailedPsiphon();
                     return;
                 }
                 const string upstreamFile = "configPsiphonUpstream.json";
@@ -118,15 +123,13 @@ public class CoreManager
                 if (_psiphonUpstreamService == null
                     || !await WaitForSocks(node.GetProtocolExtra().PsiphonUpstreamPort ?? 1089, _psiphonUpstreamService))
                 {
-                    await CoreStop();
-                    await UpdateFunc(true, "Psiphon's upstream failed to start. No direct fallback was used.");
+                    await FailPsiphon("Psiphon's upstream failed to start.");
                     return;
                 }
             }
             catch (Exception ex)
             {
-                await CoreStop();
-                await UpdateFunc(true, $"Psiphon upstream: {ex.Message}");
+                await FailPsiphon($"Psiphon upstream: {ex.Message}");
                 return;
             }
         }
@@ -138,8 +141,7 @@ public class CoreManager
         if (node.CoreType == ECoreType.Psiphon
             && (_processService == null || !await WaitForSocks(node.PreSocksPort ?? 0, _processService)))
         {
-            await CoreStop();
-            await UpdateFunc(true, "Psiphon failed to open its local SOCKS proxy.");
+            await FailPsiphon("Psiphon failed to open its local SOCKS proxy.");
             return;
         }
         if (node.CoreType == ECoreType.Psiphon
@@ -147,8 +149,7 @@ public class CoreManager
                 || await Task.WhenAny(_psiphonTunnelReady.Task, Task.Delay(TimeSpan.FromSeconds(45))) != _psiphonTunnelReady.Task
                 || !await _psiphonTunnelReady.Task))
         {
-            await CoreStop();
-            await UpdateFunc(true, "Psiphon could not establish a tunnel. TUN was not started; check the active upstream profile or use Psiphon only.");
+            await FailPsiphon("Psiphon could not establish a tunnel.");
             return;
         }
         await WaitForProxyPort(preContext);
@@ -156,8 +157,7 @@ public class CoreManager
         if (node.CoreType == ECoreType.Psiphon && (preContext == null || _processPreService == null
             || !await WaitForSocks(AppManager.Instance.GetLocalPort(EInboundProtocol.socks), _processPreService)))
         {
-            await CoreStop();
-            await UpdateFunc(true, "Psiphon's local routing service failed to start. Check the Xray core and routing assets.");
+            await FailPsiphon("Psiphon's local routing service failed to start. Check the local proxy port and routing assets.");
             return;
         }
 
@@ -256,6 +256,22 @@ public class CoreManager
 
     #region Private
 
+    private async Task FailPsiphon(string message)
+    {
+        await CoreStop();
+        await UpdateFunc(true, message);
+        await DisableFailedPsiphon();
+    }
+
+    private async Task DisableFailedPsiphon()
+    {
+        if (ShouldRecoverPsiphon(_config.TunModeItem.EnableTun, _config.PsiphonMode)
+            && _psiphonFailureFunc != null)
+        {
+            await _psiphonFailureFunc();
+        }
+    }
+
     private void StartPsiphonWatchdog(ProcessService process, int socksPort)
     {
         StopPsiphonWatchdog();
@@ -352,7 +368,7 @@ public class CoreManager
                     return;
                 }
             }
-            await UpdateFunc(true, "Psiphon automatic reconnect failed. Use Reload to try again.");
+            await FailPsiphon("Psiphon automatic reconnect failed.");
         }
         finally
         {
