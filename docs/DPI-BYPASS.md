@@ -2,6 +2,8 @@
 
 The toolbar offers separate SNI, Serverless and CF controls alongside Psiphon. Only one of these bypass modes runs at a time. Enabling a mode turns the other bypass modes off while preserving your selected profile and current TUN setting. Psiphon still enables TUN according to its existing behavior. Turning SNI, Serverless or CF off reloads the selected profile. If a bypass process exits or cannot start, the app turns that mode off and reloads the selected profile, keeping the current TUN setting.
 
+Turning TUN off switches all four bypass modes off, cancels pending connection checks, stops their helper processes during reload, and restores the selected normal profile. Saved Psiphon and SNI settings are retained for the next use. Turning TUN back on does not automatically reactivate a bypass mode.
+
 ## SNI spoofing
 
 Set a VLESS or Trojan TLS/REALITY profile as active, open **SNI → SNI spoofing settings**, and choose a decoy SNI, TLS fingerprint and active/passive injector. An optional host:port override changes the injection destination. The original TLS server name, WebSocket headers and credentials are retained. The helper supports IPv4 destinations. Custom configurations and subscription proxy chains are not supported by this overlay.

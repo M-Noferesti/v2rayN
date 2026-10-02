@@ -468,9 +468,10 @@ public partial class StatusBarViewModel : MyReactiveObject
 
         _config.TunModeItem.EnableTun = EnableTun;
 
-        if (!EnableTun && _config.PsiphonMode is "only" or "after")
+        if (!EnableTun)
         {
-            _config.PsiphonMode = "off";
+            BypassModeService.DisableAll(_config);
+            CancelAvailabilityChecks();
             CoreManager.Instance.CancelPendingPsiphonStartup();
         }
 
