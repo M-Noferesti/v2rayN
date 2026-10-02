@@ -852,10 +852,12 @@ public partial class MainWindowViewModel : MyReactiveObject
     }
 
     private bool _hasNextReloadJob = false;
+    private int _reloadGeneration;
     private readonly SemaphoreSlim _reloadSemaphore = new(1, 1);
 
     public async Task Reload()
     {
+        var generation = Interlocked.Increment(ref _reloadGeneration);
         //If there are unfinished reload job, marked with next job.
         if (!await _reloadSemaphore.WaitAsync(0))
         {
@@ -938,7 +940,9 @@ public partial class MainWindowViewModel : MyReactiveObject
             });
             RxSchedulers.MainThreadScheduler.Schedule(async () =>
             {
-                var result = await StatusBarViewModel.TestServerAvailability();
+                bool IsCurrent() => generation == Volatile.Read(ref _reloadGeneration) && !_hasNextReloadJob;
+                if (!IsCurrent()) return;
+                var result = await StatusBarViewModel.TestServerAvailability(IsCurrent);
                 if (result == null || profileItem == null || profileItem.IndexId.IsNullOrEmpty())
                 {
                     return;

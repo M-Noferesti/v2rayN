@@ -15,6 +15,7 @@ public class CoreManager
     private ProcessService? _processService;
     private ProcessService? _processPreService;
     private ProcessService? _psiphonUpstreamService;
+    private bool _runningTun;
     private TaskCompletionSource<bool>? _psiphonTunnelReady;
     private CancellationTokenSource? _psiphonWatchdogCts;
     private Func<Task>? _psiphonRecoveryFunc;
@@ -220,6 +221,8 @@ public class CoreManager
     {
         StopPsiphonWatchdog();
         CancelPendingPsiphonStartup();
+        var removeTun = _runningTun;
+        _runningTun = false;
         try
         {
             if (_linuxSudo)
@@ -228,29 +231,44 @@ public class CoreManager
                 _linuxSudo = false;
             }
 
-            if (_processService != null)
-            {
-                await _processService.StopAsync();
-                _processService.Dispose();
-                _processService = null;
-            }
-
-            if (_processPreService != null)
-            {
-                await _processPreService.StopAsync();
-                _processPreService.Dispose();
-                _processPreService = null;
-            }
-            if (_psiphonUpstreamService != null)
-            {
-                await _psiphonUpstreamService.StopAsync();
-                _psiphonUpstreamService.Dispose();
-                _psiphonUpstreamService = null;
-            }
         }
         catch (Exception ex)
         {
             Logging.SaveLog(_tag, ex);
+        }
+        // Stop the routing frontend before the proxy it forwards to. Each process
+        // must be cleaned up even if stopping another process fails.
+        var frontend = _processPreService;
+        var main = _processService;
+        var upstream = _psiphonUpstreamService;
+        _processPreService = null;
+        _processService = null;
+        _psiphonUpstreamService = null;
+        await StopProcess(frontend);
+        await StopProcess(main);
+        await StopProcess(upstream);
+        // Use the running context, not the already changed UI setting. Otherwise
+        // turning TUN off leaves its adapter/routes behind during the next start.
+        if (removeTun && Utils.IsWindows())
+        {
+            await WindowsUtils.RemoveTunDevice();
+        }
+    }
+
+    private static async Task StopProcess(ProcessService? process)
+    {
+        if (process == null) return;
+        try
+        {
+            await process.StopAsync();
+        }
+        catch (Exception ex)
+        {
+            Logging.SaveLog(_tag, ex);
+        }
+        finally
+        {
+            process.Dispose();
         }
     }
 
@@ -436,6 +454,7 @@ public class CoreManager
             return;
         }
         _processService = proc;
+        _runningTun |= context.IsTunEnabled;
     }
 
     private async Task CoreStartPreService(CoreConfigContext? preContext, ProfileItem mainNode)
@@ -470,6 +489,7 @@ public class CoreManager
                     return;
                 }
                 _processPreService = proc;
+                _runningTun |= preContext.IsTunEnabled;
             }
         }
     }

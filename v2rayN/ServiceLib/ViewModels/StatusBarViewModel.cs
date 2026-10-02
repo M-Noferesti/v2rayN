@@ -314,7 +314,7 @@ public partial class StatusBarViewModel : MyReactiveObject
         SetDefaultServerRequested.Publish(SelectedServer.ID);
     }
 
-    public async Task<AvailabilityCheckResult?> TestServerAvailability()
+    public async Task<AvailabilityCheckResult?> TestServerAvailability(Func<bool>? isCurrent = null)
     {
         var item = await ConfigHandler.GetDefaultServer(_config);
         if (item == null)
@@ -325,6 +325,7 @@ public partial class StatusBarViewModel : MyReactiveObject
         await TestServerAvailabilitySub(ResUI.Speedtesting);
 
         var result = await Task.Run(ConnectionHandler.RunAvailabilityCheck);
+        if (isCurrent?.Invoke() == false) return null;
         var msg = string.Format(ResUI.TestMeOutput, result.Time, result.Ip);
 
         var ip = result.GetValidIp();
