@@ -918,7 +918,10 @@ public partial class MainWindowViewModel : MyReactiveObject
         if (_config.SniSpoofing.Enabled && !Utils.IsAdministrator())
         {
             NoticeManager.Instance.Enqueue("Restarting as administrator for SNI injection. Accept the Windows prompt to continue.");
-            await AppManager.Instance.RebootAsAdmin();
+            if (!await AppManager.Instance.RebootAsAdmin())
+            {
+                await DisableDpiAfterFailure("SNI requires administrator approval. Restoring the normal config.");
+            }
             return;
         }
         await Reload();
