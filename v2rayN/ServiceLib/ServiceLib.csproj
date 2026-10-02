@@ -27,6 +27,8 @@
 
 	<ItemGroup>
         <EmbeddedResource Include="Sample\psiphon_default" />
+        <EmbeddedResource Include="Sample\serverless_fragA" />
+        <EmbeddedResource Include="Sample\serverless_fragB" />
         <EmbeddedResource Include="Sample\chrome_roots_pem" />
 		<EmbeddedResource Include="Sample\clash_mixin_yaml" />
 		<EmbeddedResource Include="Sample\clash_tun_yaml" />

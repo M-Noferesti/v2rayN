@@ -329,11 +329,11 @@ public partial class StatusBarViewModel : MyReactiveObject
         var msg = string.Format(ResUI.TestMeOutput, result.Time, result.Ip);
 
         var ip = result.GetValidIp();
-        if (ip.IsNotEmpty())
+        if (ip.IsNotEmpty() && !ServerlessConfigService.IsEnabled(_config))
         {
             ProfileExManager.Instance.SetTestIpInfo(item.IndexId, ip);
         }
-        if (result.Time > 0)
+        if (result.Time > 0 && !ServerlessConfigService.IsEnabled(_config))
         {
             ProfileExManager.Instance.SetTestDelay(item.IndexId, result.Time);
         }

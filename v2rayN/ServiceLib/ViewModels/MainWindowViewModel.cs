@@ -6,6 +6,7 @@ public partial class MainWindowViewModel : MyReactiveObject
     public Interaction<RxVoid, byte[]?> ScanScreenInteraction { get; } = new();
     public Interaction<RxVoid, string?> BrowseImageFileInteraction { get; } = new();
     public Interaction<bool?, RxVoid> ShowHideWindowInteraction { get; } = new();
+    public Interaction<SniSpoofingItem, SniSpoofingItem?> SniSettingsInteraction { get; } = new();
 
     public bool DesignMode { get; set; }
 
@@ -73,6 +74,22 @@ public partial class MainWindowViewModel : MyReactiveObject
     public ReactiveCommand<RxVoid, RxVoid> PsiphonOnlyCmd { get; }
     public ReactiveCommand<RxVoid, RxVoid> PsiphonAfterCmd { get; }
     public ReactiveCommand<RxVoid, RxVoid> PsiphonSettingsCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> SniToggleCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> SniSettingsCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> CloudflareToggleCmd { get; }
+    [Reactive] public partial bool IsCloudflareEnabled { get; set; }
+    [Reactive] public partial string CloudflareButtonText { get; set; } = "CF: Off";
+    [Reactive] public partial string CloudflareIconColor { get; set; } = "#808080";
+    public ReactiveCommand<RxVoid, RxVoid> ServerlessOffCmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> ServerlessACmd { get; }
+    public ReactiveCommand<RxVoid, RxVoid> ServerlessBCmd { get; }
+    [Reactive] public partial bool IsSniEnabled { get; set; }
+    [Reactive] public partial string SniButtonText { get; set; } = "SNI: Off";
+    [Reactive] public partial string SniIconColor { get; set; } = "#808080";
+    [Reactive] public partial string ServerlessButtonText { get; set; } = "Serverless: Off";
+    [Reactive] public partial string ServerlessIconColor { get; set; } = "#808080";
+    [Reactive] public partial bool IsServerlessA { get; set; }
+    [Reactive] public partial bool IsServerlessB { get; set; }
 
     [Reactive]
     public partial bool BlReloadEnabled { get; set; }
@@ -106,6 +123,7 @@ public partial class MainWindowViewModel : MyReactiveObject
     public MainWindowViewModel()
     {
         _config = AppManager.Instance.Config;
+        _config.SniSpoofing ??= new();
         BlIsWindows = Utils.IsWindows();
         MainGirdOrientation = _config.UiItem.MainGirdOrientation;
 
@@ -259,6 +277,12 @@ public partial class MainWindowViewModel : MyReactiveObject
         PsiphonOnlyCmd = ReactiveCommand.CreateFromTask(async () => await SetPsiphonMode(false));
         PsiphonAfterCmd = ReactiveCommand.CreateFromTask(async () => await SetPsiphonMode(true));
         PsiphonSettingsCmd = ReactiveCommand.CreateFromTask(OpenPsiphonSettings);
+        SniToggleCmd = ReactiveCommand.CreateFromTask(ToggleSniSpoofing);
+        SniSettingsCmd = ReactiveCommand.CreateFromTask(OpenSniSettings);
+        CloudflareToggleCmd = ReactiveCommand.CreateFromTask(ToggleCloudflareFragment);
+        ServerlessOffCmd = ReactiveCommand.CreateFromTask(async () => await SetServerlessMode(null));
+        ServerlessACmd = ReactiveCommand.CreateFromTask(async () => await SetServerlessMode("A"));
+        ServerlessBCmd = ReactiveCommand.CreateFromTask(async () => await SetServerlessMode("B"));
 
         RegionalPresetDefaultCmd = ReactiveCommand.CreateFromTask(async () =>
         {
@@ -354,7 +378,7 @@ public partial class MainWindowViewModel : MyReactiveObject
         await ConfigHandler.InitBuiltinDNS(_config);
         await ConfigHandler.InitBuiltinFullConfigTemplate(_config);
         await ProfileExManager.Instance.Init();
-        await CoreManager.Instance.Init(_config, UpdateHandler, Reload, DisablePsiphonAfterFailure);
+        await CoreManager.Instance.Init(_config, UpdateHandler, Reload, DisablePsiphonAfterFailure, DisableDpiAfterFailure);
         await CertPemManager.Instance.Init(_config);
         TaskManager.Instance.RegUpdateTask(_config, UpdateTaskHandler);
 
@@ -779,6 +803,9 @@ public partial class MainWindowViewModel : MyReactiveObject
         });
         await SQLiteHelper.Instance.ReplaceAsync(psiphon);
         _config.PsiphonMode = useActiveConfig ? "after" : "only";
+        _config.SniSpoofing.Enabled = false;
+        _config.ServerlessMode = null;
+        _config.CloudflareFragment = false;
         _config.PsiphonProfileId = psiphon.IndexId;
         _config.TunModeItem.EnableTun = true;
         StatusBarViewModel.EnableTun = true;
@@ -848,7 +875,120 @@ public partial class MainWindowViewModel : MyReactiveObject
             IsPsiphonOnly = only;
             PsiphonButtonText = after ? "Psiphon: After" : only ? "Psiphon: Only" : "Psiphon: Off";
             PsiphonIconColor = after ? "#2196F3" : only ? "#2EAD63" : "#808080";
+            IsSniEnabled = _config.SniSpoofing.Enabled;
+            SniButtonText = IsSniEnabled ? "SNI: On" : "SNI: Off";
+            SniIconColor = IsSniEnabled ? "#2196F3" : "#808080";
+            IsServerlessA = _config.ServerlessMode == "A";
+            IsServerlessB = _config.ServerlessMode == "B";
+            ServerlessButtonText = IsServerlessA ? "Serverless: A" : IsServerlessB ? "Serverless: B" : "Serverless: Off";
+            ServerlessIconColor = IsServerlessA || IsServerlessB ? "#2EAD63" : "#808080";
+            IsCloudflareEnabled = _config.CloudflareFragment;
+            CloudflareButtonText = IsCloudflareEnabled ? "CF: On" : "CF: Off";
+            CloudflareIconColor = IsCloudflareEnabled ? "#FF9800" : "#808080";
+            // MenuItem toggles its checkmark before executing an async command.
+            // Refresh even unchanged values so a rejected enable resets the UI.
+            this.RaisePropertyChanged(nameof(IsSniEnabled));
+            this.RaisePropertyChanged(nameof(IsCloudflareEnabled));
+            this.RaisePropertyChanged(nameof(IsServerlessA));
+            this.RaisePropertyChanged(nameof(IsServerlessB));
         });
+    }
+
+    private async Task ToggleSniSpoofing()
+    {
+        if (!_config.SniSpoofing.Enabled)
+        {
+            try
+            {
+                var node = await ConfigHandler.GetDefaultServer(_config)
+                    ?? throw new ArgumentException("Set a VLESS or Trojan config as active first.");
+                _ = SniSpoofingService.CreatePlan(node, _config.SniSpoofing, 40443);
+                if (!File.Exists(SniSpoofingService.BinaryPath))
+                    throw new ArgumentException("Install the SNI runtime bundle first (see README).");
+                _config.PsiphonMode = "off";
+                CoreManager.Instance.CancelPendingPsiphonStartup();
+                _config.ServerlessMode = null;
+                _config.CloudflareFragment = false;
+            }
+            catch (Exception ex) { NoticeManager.Instance.Enqueue(ex.Message); UpdatePsiphonButton(); return; }
+        }
+        _config.SniSpoofing.Enabled = !_config.SniSpoofing.Enabled;
+        await ConfigHandler.SaveConfig(_config);
+        UpdatePsiphonButton();
+        if (_config.SniSpoofing.Enabled && !Utils.IsAdministrator())
+        {
+            NoticeManager.Instance.Enqueue("Restarting as administrator for SNI injection. Accept the Windows prompt to continue.");
+            await AppManager.Instance.RebootAsAdmin();
+            return;
+        }
+        await Reload();
+    }
+
+    private async Task OpenSniSettings()
+    {
+        var settings = await SniSettingsInteraction.Handle(JsonUtils.DeepCopy(_config.SniSpoofing));
+        if (settings == null) return;
+        settings.Enabled = _config.SniSpoofing.Enabled;
+        _config.SniSpoofing = settings;
+        await ConfigHandler.SaveConfig(_config);
+        if (settings.Enabled || _config.CloudflareFragment) await Reload();
+    }
+
+    private async Task ToggleCloudflareFragment()
+    {
+        if (!_config.CloudflareFragment)
+        {
+            try
+            {
+                var node = await ConfigHandler.GetDefaultServer(_config)
+                    ?? throw new ArgumentException("Set a Cloudflare VLESS/Trojan config as active first.");
+                CloudflareFragmentService.Validate(node, _config.SniSpoofing.CloudflareAddress);
+                if (!File.Exists(ServerlessConfigService.BinaryPath))
+                    throw new ArgumentException("Install the DPI runtime bundle first (see README).");
+            }
+            catch (Exception ex) { NoticeManager.Instance.Enqueue(ex.Message); UpdatePsiphonButton(); return; }
+            _config.SniSpoofing.Enabled = false;
+            _config.PsiphonMode = "off";
+            _config.ServerlessMode = null;
+            CoreManager.Instance.CancelPendingPsiphonStartup();
+        }
+        _config.CloudflareFragment = !_config.CloudflareFragment;
+        await ConfigHandler.SaveConfig(_config);
+        UpdatePsiphonButton();
+        await Reload();
+    }
+
+    private async Task SetServerlessMode(string? mode)
+    {
+        if (mode != null && !File.Exists(ServerlessConfigService.BinaryPath))
+        {
+            NoticeManager.Instance.Enqueue("Install the Serverless runtime bundle first (see README).");
+            UpdatePsiphonButton();
+            return;
+        }
+        _config.ServerlessMode = mode;
+        if (mode != null)
+        {
+            _config.PsiphonMode = "off";
+            _config.SniSpoofing.Enabled = false;
+            _config.CloudflareFragment = false;
+            CoreManager.Instance.CancelPendingPsiphonStartup();
+        }
+        await ConfigHandler.SaveConfig(_config);
+        UpdatePsiphonButton();
+        await Reload();
+    }
+
+    private async Task DisableDpiAfterFailure(string message)
+    {
+        if (!_config.SniSpoofing.Enabled && !ServerlessConfigService.IsEnabled(_config) && !_config.CloudflareFragment) return;
+        _config.SniSpoofing.Enabled = false;
+        _config.ServerlessMode = null;
+        _config.CloudflareFragment = false;
+        await ConfigHandler.SaveConfig(_config);
+        UpdatePsiphonButton();
+        NoticeManager.Instance.Enqueue(message);
+        await Reload();
     }
 
     private bool _hasNextReloadJob = false;
@@ -893,7 +1033,8 @@ public partial class MainWindowViewModel : MyReactiveObject
             await CoreManager.Instance.CoreStop();
             var profileItem = await ConfigHandler.GetDefaultServer(_config);
             UpdatePsiphonButton();
-            if ((profileItem == null || profileItem.CoreType == ECoreType.Psiphon) && _config.PsiphonMode != "only")
+            if ((profileItem == null || profileItem.CoreType == ECoreType.Psiphon) && _config.PsiphonMode != "only"
+                && !ServerlessConfigService.IsEnabled(_config))
             {
                 NoticeManager.Instance.Enqueue(ResUI.CheckServerSettings);
                 return;
@@ -924,11 +1065,32 @@ public partial class MainWindowViewModel : MyReactiveObject
                 await SQLiteHelper.Instance.ReplaceAsync(psiphon);
                 runProfile = psiphon;
             }
-            var allResult = await CoreConfigContextBuilder.BuildAll(_config, runProfile);
+            var runtimeConfig = JsonUtils.DeepCopy(_config);
+            if (ServerlessConfigService.IsEnabled(runtimeConfig))
+            {
+                runProfile = ServerlessConfigService.CreateNode(runtimeConfig, runtimeConfig.TunModeItem.EnableTun
+                    ? PsiphonConfigService.FindAvailablePort() : AppManager.Instance.GetLocalPort(EInboundProtocol.socks));
+                runtimeConfig.TunModeItem.EnableLegacyProtect = true;
+            }
+            else if (runtimeConfig.SniSpoofing.Enabled || runtimeConfig.CloudflareFragment)
+            {
+                try
+                {
+                    if (runtimeConfig.CloudflareFragment) CloudflareFragmentService.Validate(runProfile!, runtimeConfig.SniSpoofing.CloudflareAddress);
+                    else _ = SniSpoofingService.CreatePlan(runProfile!, runtimeConfig.SniSpoofing, 40443);
+                }
+                catch (Exception ex) { await DisableDpiAfterFailure(ex.Message); return; }
+                runProfile = JsonUtils.DeepCopy(runProfile!);
+                runProfile.CoreType = ECoreType.Xray;
+                runtimeConfig.TunModeItem.EnableLegacyProtect = true;
+            }
+            var allResult = await CoreConfigContextBuilder.BuildAll(runtimeConfig, runProfile);
             NoticeManager.Instance.NotifyValidatorResult(allResult.CombinedValidatorResult);
             if (!allResult.Success)
             {
                 if (IsPsiphonModeEnabled()) await DisablePsiphonAfterFailure();
+                else if (runtimeConfig.SniSpoofing.Enabled || runtimeConfig.CloudflareFragment || ServerlessConfigService.IsEnabled(runtimeConfig))
+                    await DisableDpiAfterFailure("The bypass config is invalid. Restoring the selected config.");
                 return;
             }
 
@@ -940,6 +1102,8 @@ public partial class MainWindowViewModel : MyReactiveObject
             });
             RxSchedulers.MainThreadScheduler.Schedule(async () =>
             {
+                // Serverless is a direct mode, so its delay must not overwrite the selected server's result.
+                if (ServerlessConfigService.IsEnabled(runtimeConfig)) return;
                 bool IsCurrent() => generation == Volatile.Read(ref _reloadGeneration) && !_hasNextReloadJob;
                 if (!IsCurrent()) return;
                 var result = await StatusBarViewModel.TestServerAvailability(IsCurrent);

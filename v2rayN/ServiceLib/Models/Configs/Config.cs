@@ -9,6 +9,9 @@ public class Config
     public string SubIndexId { get; set; }
     public string? PsiphonMode { get; set; }
     public string? PsiphonProfileId { get; set; }
+    public SniSpoofingItem SniSpoofing { get; set; } = new();
+    public string? ServerlessMode { get; set; }
+    public bool CloudflareFragment { get; set; }
 
     #endregion property
 

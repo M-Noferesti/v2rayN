@@ -154,6 +154,46 @@
                         </Menu>
                         <Separator />
                         <Menu Margin="0,1" Style="{StaticResource ToolbarMenu}">
+                            <MenuItem Padding="{StaticResource MarginLeftRight8}" AutomationProperties.Name="SNI spoofing">
+                                <MenuItem.Header>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock x:Name="txtSniIcon" Text="S" FontWeight="Bold" FontSize="18" Margin="0,0,8,0" />
+                                        <TextBlock x:Name="txtSniMode" />
+                                    </StackPanel>
+                                </MenuItem.Header>
+                                <MenuItem x:Name="menuSniToggle" Header="Enable SNI spoofing for active config" IsCheckable="True" Height="{StaticResource MenuItemHeight}" />
+                                <MenuItem x:Name="menuSniSettings" Header="SNI spoofing settings..." Height="{StaticResource MenuItemHeight}" />
+                            </MenuItem>
+                        </Menu>
+                        <Separator />
+                        <Menu Margin="0,1" Style="{StaticResource ToolbarMenu}">
+                            <MenuItem Padding="{StaticResource MarginLeftRight8}" AutomationProperties.Name="Serverless modes">
+                                <MenuItem.Header>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock x:Name="txtServerlessIcon" Text="D" FontWeight="Bold" FontSize="18" Margin="0,0,8,0" />
+                                        <TextBlock x:Name="txtServerlessMode" />
+                                    </StackPanel>
+                                </MenuItem.Header>
+                                <MenuItem x:Name="menuServerlessOff" Header="Off · use active config" Height="{StaticResource MenuItemHeight}" />
+                                <MenuItem x:Name="menuServerlessA" Header="Direct · Fragment A" IsCheckable="True" Height="{StaticResource MenuItemHeight}" />
+                                <MenuItem x:Name="menuServerlessB" Header="Direct · Fragment B" IsCheckable="True" Height="{StaticResource MenuItemHeight}" />
+                            </MenuItem>
+                        </Menu>
+                        <Separator />
+                        <Menu Margin="0,1" Style="{StaticResource ToolbarMenu}">
+                            <MenuItem Padding="{StaticResource MarginLeftRight8}" AutomationProperties.Name="Cloudflare Fragment">
+                                <MenuItem.Header>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock x:Name="txtCloudflareIcon" Text="F" FontWeight="Bold" FontSize="18" Margin="0,0,8,0" />
+                                        <TextBlock x:Name="txtCloudflareMode" />
+                                    </StackPanel>
+                                </MenuItem.Header>
+                                <MenuItem x:Name="menuCloudflareToggle" Header="Enable Cloudflare Fragment preset" IsCheckable="True" Height="{StaticResource MenuItemHeight}" />
+                                <MenuItem x:Name="menuCloudflareSettings" Header="Clean IP and spoofing settings..." Height="{StaticResource MenuItemHeight}" />
+                            </MenuItem>
+                        </Menu>
+                        <Separator />
+                        <Menu Margin="0,1" Style="{StaticResource ToolbarMenu}">
                             <MenuItem Padding="{StaticResource MarginLeftRight8}" AutomationProperties.Name="{x:Static resx:ResUI.menuSubscription}">
                                 <MenuItem.Header>
                                     <StackPanel Orientation="Horizontal">

@@ -80,6 +80,31 @@ public partial class MainWindow
             this.BindCommand(ViewModel, vm => vm.PsiphonOnlyCmd, v => v.menuPsiphonOnly).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.PsiphonAfterCmd, v => v.menuPsiphonAfter).DisposeWith(disposables);
             this.BindCommand(ViewModel, vm => vm.PsiphonSettingsCmd, v => v.menuPsiphonSettings).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.SniToggleCmd, v => v.menuSniToggle).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.SniSettingsCmd, v => v.menuSniSettings).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.CloudflareToggleCmd, v => v.menuCloudflareToggle).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.SniSettingsCmd, v => v.menuCloudflareSettings).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.IsCloudflareEnabled, v => v.menuCloudflareToggle.IsChecked).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.CloudflareButtonText, v => v.txtCloudflareMode.Text).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.CloudflareIconColor, v => v.txtCloudflareIcon.Foreground,
+                color => (Brush)new BrushConverter().ConvertFromString(color)!).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.ServerlessOffCmd, v => v.menuServerlessOff).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.ServerlessACmd, v => v.menuServerlessA).DisposeWith(disposables);
+            this.BindCommand(ViewModel, vm => vm.ServerlessBCmd, v => v.menuServerlessB).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.IsSniEnabled, v => v.menuSniToggle.IsChecked).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.SniButtonText, v => v.txtSniMode.Text).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.ServerlessButtonText, v => v.txtServerlessMode.Text).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.IsServerlessA, v => v.menuServerlessA.IsChecked).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.IsServerlessB, v => v.menuServerlessB.IsChecked).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.SniIconColor, v => v.txtSniIcon.Foreground,
+                color => (Brush)new BrushConverter().ConvertFromString(color)!).DisposeWith(disposables);
+            this.OneWayBind(ViewModel, vm => vm.ServerlessIconColor, v => v.txtServerlessIcon.Foreground,
+                color => (Brush)new BrushConverter().ConvertFromString(color)!).DisposeWith(disposables);
+            ViewModel.SniSettingsInteraction.RegisterHandler(interaction =>
+            {
+                var dialog = new SniSpoofingWindow(interaction.Input) { Owner = this };
+                interaction.SetOutput(dialog.ShowDialog() == true ? dialog.Settings : null);
+            }).DisposeWith(disposables);
             this.OneWayBind(ViewModel, vm => vm.PsiphonButtonText, v => v.txtPsiphonMode.Text).DisposeWith(disposables);
             this.OneWayBind(ViewModel, vm => vm.PsiphonIconColor, v => v.txtPsiphonIcon.Foreground,
                 color => (Brush)new BrushConverter().ConvertFromString(color)!).DisposeWith(disposables);

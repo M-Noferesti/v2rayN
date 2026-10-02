@@ -710,6 +710,38 @@ public partial class ProfilesViewModel : MyReactiveObject
 
     public async Task ServerSpeedtest(ESpeedActionType actionType)
     {
+        if (_config.SniSpoofing.Enabled || _config.CloudflareFragment || ServerlessConfigService.IsEnabled(_config))
+        {
+            if (ServerlessConfigService.IsEnabled(_config))
+            {
+                NoticeManager.Instance.Enqueue("Serverless is direct access. Test your websites; its result does not measure the selected remote server.");
+                return;
+            }
+            if (actionType is not (ESpeedActionType.Realping or ESpeedActionType.FastRealping or ESpeedActionType.Mixedtest))
+            {
+                NoticeManager.Instance.Enqueue("While a DPI mode is enabled, use Test real delay to check the active connection. Turn the mode off to test saved profiles independently.");
+                return;
+            }
+            // Independent speed-test cores do not use the running helper/preset.
+            // Measure its live local proxy instead, and never overwrite other profiles.
+            if (!CoreManager.Instance.IsDpiReady)
+            {
+                NoticeManager.Instance.Enqueue("The DPI connection is starting. Wait for it to connect before testing the delay.");
+                return;
+            }
+            var activeId = _config.IndexId;
+            var generation = CoreManager.Instance.RuntimeGeneration;
+            var sni = _config.SniSpoofing.Enabled;
+            var cf = _config.CloudflareFragment;
+            var result = await StatusBarViewModel.Instance.TestServerAvailability(() =>
+                CoreManager.Instance.RuntimeGeneration == generation && _config.IndexId == activeId
+                && _config.SniSpoofing.Enabled == sni && _config.CloudflareFragment == cf
+                && !ServerlessConfigService.IsEnabled(_config));
+            if (result != null)
+                await SetSpeedTestResult(new() { IndexId = activeId, Delay = result.Time > 0 ? result.Time.ToString() : "-1", IpInfo = result.Ip });
+            NoticeManager.Instance.Enqueue("Tested the active connection with its DPI mode. Other saved profiles were not tested.");
+            return;
+        }
         List<ProfileItem>? lstSelected;
         if (actionType is ESpeedActionType.Mixedtest or ESpeedActionType.FastRealping)
         {

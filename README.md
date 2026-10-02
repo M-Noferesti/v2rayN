@@ -6,6 +6,8 @@ This fork adds built-in Psiphon support to v2rayN on Windows, including direct P
 
 Psiphon and TUN are linked: disabling TUN turns Psiphon off, and enabling a Psiphon mode enables TUN.
 
+Windows also has separate **SNI Spoofing**, **Serverless A/B** and **Cloudflare Fragment** controls. They apply to the running connection without replacing your selected profile. See [DPI bypass setup and usage](docs/DPI-BYPASS.md), including companion runtime installation and the PattN/PattNG Cloudflare preset.
+
 ### A GUI client for Windows, Linux and macOS. Support [Xray](https://github.com/XTLS/Xray-core) and [sing-box](https://github.com/SagerNet/sing-box) and [others](https://github.com/2dust/v2rayN/wiki/List-of-supported-cores)
 
 [![CodeFactor](https://www.codefactor.io/repository/github/2dust/v2rayn/badge)](https://www.codefactor.io/repository/github/2dust/v2rayn)

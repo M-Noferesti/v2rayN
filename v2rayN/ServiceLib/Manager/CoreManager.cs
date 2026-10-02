@@ -16,6 +16,13 @@ public class CoreManager
     private ProcessService? _processPreService;
     private ProcessService? _psiphonUpstreamService;
     private bool _runningTun;
+    private ProcessService? _sniSpoofingService;
+    private CancellationTokenSource? _dpiWatchdogCts;
+    private Func<string, Task>? _dpiFailureFunc;
+    private SniSpoofingPlan? _sniPlan;
+    private int _runtimeGeneration;
+    public int RuntimeGeneration => Volatile.Read(ref _runtimeGeneration);
+    public bool IsDpiReady { get; private set; }
     private TaskCompletionSource<bool>? _psiphonTunnelReady;
     private CancellationTokenSource? _psiphonWatchdogCts;
     private Func<Task>? _psiphonRecoveryFunc;
@@ -29,12 +36,14 @@ public class CoreManager
     private const string _tag = "CoreHandler";
 
     public async Task Init(Config config, Func<bool, string, Task> updateFunc,
-        Func<Task>? psiphonRecoveryFunc = null, Func<Task>? psiphonFailureFunc = null)
+        Func<Task>? psiphonRecoveryFunc = null, Func<Task>? psiphonFailureFunc = null,
+        Func<string, Task>? dpiFailureFunc = null)
     {
         _config = config;
         _updateFunc = updateFunc;
         _psiphonRecoveryFunc = psiphonRecoveryFunc;
         _psiphonFailureFunc = psiphonFailureFunc;
+        _dpiFailureFunc = dpiFailureFunc;
 
         //Copy the bin folder to the storage location (for init)
         if (Environment.GetEnvironmentVariable(Global.LocalAppData) == "1")
@@ -84,12 +93,16 @@ public class CoreManager
         }
 
         var node = mainContext.Node;
+        var bypassMode = mainContext.AppConfig.CloudflareFragment || mainContext.AppConfig.SniSpoofing.Enabled
+            || node.IndexId == ServerlessConfigService.NodeId;
         var fileName = Utils.GetBinConfigPath(Global.CoreConfigFileName);
         var result = await CoreConfigHandler.GenerateClientConfig(mainContext, fileName);
         if (result.Success != true)
         {
             await UpdateFunc(true, result.Msg);
             if (node.CoreType == ECoreType.Psiphon) await DisableFailedPsiphon();
+            else if (bypassMode)
+                await FailDpi(result.Msg);
             return;
         }
 
@@ -105,6 +118,29 @@ public class CoreManager
         {
             await Task.Delay(100);
             await WindowsUtils.RemoveTunDevice();
+        }
+
+        if (mainContext.AppConfig.SniSpoofing.Enabled)
+        {
+            try
+            {
+                if (!Utils.IsWindows() || !Utils.IsAdministrator())
+                    throw new InvalidOperationException("SNI spoofing requires running v2rayN as administrator on Windows.");
+                if (!File.Exists(SniSpoofingService.BinaryPath))
+                    throw new FileNotFoundException("The SNI helper is missing. Install the SNI runtime bundle.");
+                _sniPlan = SniSpoofingService.CreatePlan(node, mainContext.AppConfig.SniSpoofing, PsiphonConfigService.FindAvailablePort());
+                var rewritten = SniSpoofingService.RewriteOutbound(await File.ReadAllTextAsync(fileName), node, _sniPlan);
+                await File.WriteAllTextAsync(fileName, rewritten);
+                _sniSpoofingService = await StartCompanion(SniSpoofingService.BinaryPath, _sniPlan.Arguments);
+                if (!await WaitForTcp(_sniPlan.LocalPort, _sniSpoofingService))
+                    throw new InvalidOperationException("The SNI helper failed to open its local port.");
+                await UpdateFunc(false, $"SNI spoofing enabled · {_sniPlan.Decoy}");
+            }
+            catch (Exception ex)
+            {
+                await FailDpi($"SNI spoofing: {ex.Message}");
+                return;
+            }
         }
 
         if (node.CoreType == ECoreType.Psiphon && node.GetProtocolExtra().PsiphonUseUpstream == true)
@@ -138,7 +174,21 @@ public class CoreManager
         {
             _psiphonTunnelReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
         }
-        await CoreStart(mainContext);
+        try
+        {
+            await CoreStart(mainContext);
+        }
+        catch (Exception ex) when (bypassMode)
+        {
+            await FailDpi(ex.Message);
+            return;
+        }
+        if (bypassMode
+            && _processService is null or { HasExited: true })
+        {
+            await FailDpi("The bypass core failed to start. Switching back to the active config.");
+            return;
+        }
         if (node.CoreType == ECoreType.Psiphon
             && (_processService == null || !await WaitForSocks(node.PreSocksPort ?? 0, _processService)))
         {
@@ -154,11 +204,22 @@ public class CoreManager
             return;
         }
         await WaitForProxyPort(preContext);
-        await CoreStartPreService(preContext, node);
+        try { await CoreStartPreService(preContext, node); }
+        catch (Exception ex) when (bypassMode)
+        {
+            await FailDpi($"The bypass routing service failed: {ex.Message}");
+            return;
+        }
         if (node.CoreType == ECoreType.Psiphon && (preContext == null || _processPreService == null
             || !await WaitForSocks(AppManager.Instance.GetLocalPort(EInboundProtocol.socks), _processPreService)))
         {
             await FailPsiphon("Psiphon's local routing service failed to start. Check the local proxy port and routing assets.");
+            return;
+        }
+        if (bypassMode && preContext != null
+            && (_processPreService == null || !await WaitForSocks(AppManager.Instance.GetLocalPort(EInboundProtocol.socks), _processPreService)))
+        {
+            await FailDpi("The local bypass routing service failed to start.");
             return;
         }
 
@@ -173,6 +234,11 @@ public class CoreManager
         if (node.CoreType == ECoreType.Psiphon && _processService is { HasExited: false })
         {
             StartPsiphonWatchdog(_processService, node.PreSocksPort ?? 0);
+        }
+        if (bypassMode)
+        {
+            IsDpiReady = true;
+            StartDpiWatchdog();
         }
     }
 
@@ -219,6 +285,11 @@ public class CoreManager
 
     public async Task CoreStop()
     {
+        Interlocked.Increment(ref _runtimeGeneration);
+        IsDpiReady = false;
+        _dpiWatchdogCts?.Cancel();
+        _dpiWatchdogCts?.Dispose();
+        _dpiWatchdogCts = null;
         StopPsiphonWatchdog();
         CancelPendingPsiphonStartup();
         var removeTun = _runningTun;
@@ -247,6 +318,10 @@ public class CoreManager
         await StopProcess(frontend);
         await StopProcess(main);
         await StopProcess(upstream);
+        var sni = _sniSpoofingService;
+        _sniSpoofingService = null;
+        _sniPlan = null;
+        await StopProcess(sni);
         // Use the running context, not the already changed UI setting. Otherwise
         // turning TUN off leaves its adapter/routes behind during the next start.
         if (removeTun && Utils.IsWindows())
@@ -273,6 +348,71 @@ public class CoreManager
     }
 
     #region Private
+
+    private async Task FailDpi(string message)
+    {
+        await CoreStop();
+        await UpdateFunc(true, message);
+        if (_dpiFailureFunc != null) await _dpiFailureFunc(message);
+    }
+
+    private async Task<ProcessService> StartCompanion(string binary, string arguments, Dictionary<string, string>? environment = null)
+    {
+        var process = new ProcessService(binary, arguments, Utils.GetBinConfigPath(), true, false, environment, UpdateFunc);
+        try
+        {
+            await process.StartAsync();
+            AddProcessJob(process.Handle);
+            await Task.Delay(200);
+            if (process.HasExited) throw new InvalidOperationException("The bypass process exited during startup.");
+            return process;
+        }
+        catch
+        {
+            await StopProcess(process);
+            throw;
+        }
+    }
+
+    private static async Task<bool> WaitForTcp(int port, ProcessService process)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!timeout.IsCancellationRequested && !process.HasExited)
+        {
+            using var tcp = new TcpClient();
+            try { await tcp.ConnectAsync(IPAddress.Loopback, port, timeout.Token); return true; }
+            catch (SocketException) { }
+            catch (OperationCanceledException) { return false; }
+            await Task.Delay(50);
+        }
+        return false;
+    }
+
+    private void StartDpiWatchdog()
+    {
+        var cts = _dpiWatchdogCts = new();
+        var main = _processService;
+        var frontend = _processPreService;
+        var sni = _sniSpoofingService;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.IsCancellationRequested)
+                {
+                    await Task.Delay(2000, cts.Token);
+                    if (main?.HasExited == true || frontend?.HasExited == true || sni?.HasExited == true)
+                    {
+                        if (!cts.IsCancellationRequested) await FailDpi("The bypass process stopped. Restoring the active config with the current TUN setting.");
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
+            catch (Exception ex) { Logging.SaveLog(_tag, ex); }
+        });
+    }
 
     private async Task FailPsiphon(string message)
     {
@@ -444,6 +584,15 @@ public class CoreManager
     private async Task CoreStart(CoreConfigContext context)
     {
         var node = context.Node;
+        if (node.IndexId == ServerlessConfigService.NodeId || context.AppConfig.CloudflareFragment)
+        {
+            if (!File.Exists(ServerlessConfigService.BinaryPath))
+                throw new FileNotFoundException("Serverless needs its separate Xray 26.6.27+ runtime bundle.");
+            _processService = await StartCompanion(ServerlessConfigService.BinaryPath,
+                $"run -c {Utils.GetBinConfigPath(Global.CoreConfigFileName).AppendQuotes()}",
+                new() { ["XRAY_LOCATION_ASSET"] = Path.GetDirectoryName(ServerlessConfigService.BinaryPath)! });
+            return;
+        }
         var coreType = AppManager.Instance.GetCoreType(node, node.ConfigType);
         var coreInfo = CoreInfoManager.Instance.GetCoreInfo(coreType);
 
@@ -470,18 +619,24 @@ public class CoreManager
                 {
                     IPAddress[] upstreamAddresses = [];
                     var isPsiphon = mainNode.CoreType == ECoreType.Psiphon;
-                    var upstream = !isPsiphon ? mainNode
+                    var upstream = mainNode.IndexId == ServerlessConfigService.NodeId ? null : !isPsiphon ? mainNode
                         : mainNode.GetProtocolExtra().PsiphonUseUpstream == true
                             ? await AppManager.Instance.GetProfileItem(mainNode.GetProtocolExtra().PsiphonUpstreamProfileId ?? "")
                             : null;
-                    if (!string.IsNullOrWhiteSpace(upstream?.Address))
+                    var addressToExclude = _sniPlan?.Host ?? (preContext.AppConfig.CloudflareFragment
+                        && !string.IsNullOrWhiteSpace(preContext.AppConfig.SniSpoofing.CloudflareAddress)
+                            ? preContext.AppConfig.SniSpoofing.CloudflareAddress : upstream?.Address);
+                    if (!string.IsNullOrWhiteSpace(addressToExclude))
                     {
-                        if (IPAddress.TryParse(upstream.Address, out var address)) upstreamAddresses = [address];
-                        else upstreamAddresses = await Dns.GetHostAddressesAsync(upstream.Address);
+                        if (IPAddress.TryParse(addressToExclude, out var address)) upstreamAddresses = [address];
+                        else upstreamAddresses = await Dns.GetHostAddressesAsync(addressToExclude);
                     }
                     await File.WriteAllTextAsync(fileName,
-                        PsiphonConfigService.SimplifyTunFrontend(await File.ReadAllTextAsync(fileName), upstreamAddresses, preserveRuleSets: !isPsiphon));
+                        PsiphonConfigService.SimplifyTunFrontend(await File.ReadAllTextAsync(fileName), upstreamAddresses,
+                            preserveRuleSets: !isPsiphon && mainNode.IndexId != ServerlessConfigService.NodeId));
                 }
+                if (_sniPlan != null && preCoreType == ECoreType.sing_box)
+                    await File.WriteAllTextAsync(fileName, SniSpoofingService.ProtectTun(await File.ReadAllTextAsync(fileName)));
                 var coreInfo = CoreInfoManager.Instance.GetCoreInfo(preCoreType);
                 var proc = await RunProcess(coreInfo, Global.CorePreConfigFileName, true, true, preContext.IsTunEnabled);
                 if (proc is null)

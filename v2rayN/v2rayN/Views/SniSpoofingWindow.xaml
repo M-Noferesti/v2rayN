@@ -1,0 +1,35 @@
+<Window x:Class="v2rayN.Views.SniSpoofingWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="DPI bypass settings" Width="540" SizeToContent="Height" ResizeMode="NoResize"
+    WindowStartupLocation="CenterOwner"
+    Background="{DynamicResource MaterialDesign.Brush.Background}"
+    Foreground="{DynamicResource MaterialDesign.Brush.Foreground}">
+    <StackPanel Margin="28">
+        <TextBlock Text="SNI spoofing" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock Text="Applies to the active VLESS/Trojan TLS or REALITY config. The real TLS name stays unchanged. Windows asks for administrator access when enabled."
+                   TextWrapping="Wrap" Margin="0,10,0,22" Opacity="0.75" />
+        <TextBlock Text="Spoof destination (optional host:port)" />
+        <TextBox x:Name="txtDestination" Margin="0,5,0,4" />
+        <TextBlock Text="Leave blank to use the active server's address and port." FontSize="12" Opacity="0.65" Margin="0,0,0,18" />
+        <TextBlock Text="Decoy SNI" />
+        <TextBox x:Name="txtDecoy" Margin="0,5,0,18" />
+        <Grid Margin="0,0,0,18">
+            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="24" /><ColumnDefinition /></Grid.ColumnDefinitions>
+            <StackPanel><TextBlock Text="TLS fingerprint" /><ComboBox x:Name="cmbFingerprint" Margin="0,6,0,0" /></StackPanel>
+            <StackPanel Grid.Column="2"><TextBlock Text="Injector" /><ComboBox x:Name="cmbInjector" Margin="0,6,0,0" /></StackPanel>
+        </Grid>
+        <CheckBox x:Name="chkFragment" Content="Also fragment the real TLS ClientHello" Margin="0,0,0,18" />
+        <Separator Margin="0,0,0,16" />
+        <TextBlock Text="Cloudflare Fragment preset" FontSize="18" FontWeight="SemiBold" />
+        <TextBlock Text="Uses the supplied Finalmask rules, unsafe fingerprint, http/1.1 and cipher list. Enable it using the separate CF button." TextWrapping="Wrap" Margin="0,8,0,14" Opacity="0.75" />
+        <TextBlock Text="Cloudflare clean IPv4 (optional)" />
+        <TextBox x:Name="txtCloudflareAddress" Margin="0,5,0,4" />
+        <TextBlock Text="Blank keeps your server address. You can try 188.114.97.6 if reachable on your connection." TextWrapping="Wrap" FontSize="12" Opacity="0.65" Margin="0,0,0,18" />
+        <TextBlock x:Name="txtError" TextWrapping="Wrap" Foreground="#F08080" Margin="0,0,0,12" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancel" IsCancel="True" Margin="0,0,12,0" />
+            <Button Content="Save" IsDefault="True" Click="Save_Click" />
+        </StackPanel>
+    </StackPanel>
+</Window>

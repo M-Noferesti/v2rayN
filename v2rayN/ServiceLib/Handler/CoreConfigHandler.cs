@@ -13,7 +13,12 @@ public static class CoreConfigHandler
         var result = new RetResult();
         var node = context.Node;
 
-        if (node.ConfigType == EConfigType.Custom)
+        if (node.IndexId == ServerlessConfigService.NodeId)
+        {
+            result = new RetResult { Success = true, Data = ServerlessConfigService.CreateConfig(
+                context.AppConfig.ServerlessMode!, node.PreSocksPort ?? AppManager.Instance.GetLocalPort(EInboundProtocol.socks)) };
+        }
+        else if (node.ConfigType == EConfigType.Custom)
         {
             result = node.CoreType switch
             {
@@ -33,6 +38,11 @@ public static class CoreConfigHandler
         if (result.Success != true)
         {
             return result;
+        }
+        if (context.AppConfig.CloudflareFragment && node.ConfigType is EConfigType.VLESS or EConfigType.Trojan)
+        {
+            try { result.Data = CloudflareFragmentService.Apply(result.Data!.ToString()!, node, context.AppConfig.SniSpoofing.CloudflareAddress); }
+            catch (Exception ex) { return new RetResult { Msg = ex.Message }; }
         }
         if (fileName.IsNotEmpty() && result.Data != null)
         {
