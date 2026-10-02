@@ -314,7 +314,37 @@ public partial class StatusBarViewModel : MyReactiveObject
         SetDefaultServerRequested.Publish(SelectedServer.ID);
     }
 
+    private CancellationTokenSource? _availabilityCts;
+    private int _availabilityGeneration;
+
+    public void CancelAvailabilityChecks()
+    {
+        Interlocked.Increment(ref _availabilityGeneration);
+        CancelAvailabilityCheck(Interlocked.Exchange(ref _availabilityCts, null));
+    }
+
+    private static void CancelAvailabilityCheck(CancellationTokenSource? cts)
+    {
+        try { cts?.Cancel(); }
+        catch (ObjectDisposedException) { }
+    }
+
     public async Task<AvailabilityCheckResult?> TestServerAvailability(Func<bool>? isCurrent = null)
+    {
+        var generation = Interlocked.Increment(ref _availabilityGeneration);
+        using var cts = new CancellationTokenSource();
+        CancelAvailabilityCheck(Interlocked.Exchange(ref _availabilityCts, cts));
+        bool IsCurrent() => !cts.IsCancellationRequested
+            && generation == Volatile.Read(ref _availabilityGeneration) && isCurrent?.Invoke() != false;
+        try
+        {
+            return await TestServerAvailabilityCore(IsCurrent, cts.Token);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested) { return null; }
+        finally { Interlocked.CompareExchange(ref _availabilityCts, null, cts); }
+    }
+
+    private async Task<AvailabilityCheckResult?> TestServerAvailabilityCore(Func<bool> isCurrent, CancellationToken token)
     {
         var item = await ConfigHandler.GetDefaultServer(_config);
         if (item == null)
@@ -322,10 +352,11 @@ public partial class StatusBarViewModel : MyReactiveObject
             return null;
         }
 
-        await TestServerAvailabilitySub(ResUI.Speedtesting);
+        if (!isCurrent()) return null;
+        await TestServerAvailabilitySub(ResUI.Speedtesting, isCurrent);
 
-        var result = await Task.Run(ConnectionHandler.RunAvailabilityCheck);
-        if (isCurrent?.Invoke() == false) return null;
+        var result = await ConnectionHandler.RunAvailabilityCheck(token);
+        if (!isCurrent()) return null;
         var msg = string.Format(ResUI.TestMeOutput, result.Time, result.Ip);
 
         var ip = result.GetValidIp();
@@ -339,15 +370,15 @@ public partial class StatusBarViewModel : MyReactiveObject
         }
 
         NoticeManager.Instance.SendMessageEx(msg);
-        await TestServerAvailabilitySub(msg);
+        await TestServerAvailabilitySub(msg, isCurrent);
         return result;
     }
 
-    private async Task TestServerAvailabilitySub(string msg)
+    private async Task TestServerAvailabilitySub(string msg, Func<bool> isCurrent)
     {
         RxSchedulers.MainThreadScheduler.Schedule(() =>
         {
-            _ = TestServerAvailabilityResult(msg);
+            if (isCurrent()) _ = TestServerAvailabilityResult(msg);
         });
         await Task.CompletedTask;
     }

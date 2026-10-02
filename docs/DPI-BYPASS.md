@@ -38,6 +38,8 @@ Successful local startup and configuration validation do not guarantee that a DP
 
 While SNI or CF is enabled, **Test real delay** measures the live active connection through its helper or preset. It does not launch independent normal cores or overwrite other profiles' delay results. Turn the mode off before testing saved profiles independently. Serverless does not run profile tests.
 
+Changing modes or reloading cancels pending connection checks and discards results from older batch tests. This prevents a test from the previous connection from overwriting the new connection's delay. SNI helper messages, including injection/ACK failures and shutdown, are saved in the dated file under `guiLogs` when application logging is enabled. A blue button confirms the mode is enabled; a successful real delay or website request confirms connectivity.
+
 ## Sources and licenses
 
 - [SNI-Spoofing-Go](https://github.com/aleskxyz/SNI-Spoofing-Go) — GPL-3.0, release v0.7.2; binary license included by the installer.

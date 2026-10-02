@@ -18,6 +18,7 @@ public partial class ProfilesViewModel : MyReactiveObject
     private string _serverFilter = string.Empty;
     private readonly Dictionary<string, bool> _dicHeaderSort = new();
     private SpeedtestService? _speedtestService;
+    private int _speedtestGeneration;
     private string? _pendingSelectIndexId;
 
     #endregion private prop
@@ -762,11 +763,14 @@ public partial class ProfilesViewModel : MyReactiveObject
             return;
         }
 
-        _speedtestService ??= new SpeedtestService(_config, async (SpeedTestResult result) =>
+        ServerSpeedtestStop();
+        var testGeneration = Volatile.Read(ref _speedtestGeneration);
+        _speedtestService = new SpeedtestService(JsonUtils.DeepCopy(_config), async (SpeedTestResult result) =>
         {
             RxSchedulers.MainThreadScheduler.Schedule(() =>
             {
-                _ = SetSpeedTestResult(result);
+                if (testGeneration == Volatile.Read(ref _speedtestGeneration))
+                    _ = SetSpeedTestResult(result);
             });
             await Task.CompletedTask;
         });
@@ -775,6 +779,7 @@ public partial class ProfilesViewModel : MyReactiveObject
 
     public void ServerSpeedtestStop()
     {
+        Interlocked.Increment(ref _speedtestGeneration);
         _speedtestService?.ExitLoop();
     }
 

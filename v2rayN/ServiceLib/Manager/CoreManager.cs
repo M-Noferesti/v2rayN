@@ -131,7 +131,12 @@ public class CoreManager
                 _sniPlan = SniSpoofingService.CreatePlan(node, mainContext.AppConfig.SniSpoofing, PsiphonConfigService.FindAvailablePort());
                 var rewritten = SniSpoofingService.RewriteOutbound(await File.ReadAllTextAsync(fileName), node, _sniPlan);
                 await File.WriteAllTextAsync(fileName, rewritten);
-                _sniSpoofingService = await StartCompanion(SniSpoofingService.BinaryPath, _sniPlan.Arguments);
+                _sniSpoofingService = await StartCompanion(SniSpoofingService.BinaryPath, _sniPlan.Arguments,
+                    updateFunc: async (notify, message) =>
+                    {
+                        Logging.SaveLog($"SNI helper: {message.Trim()}");
+                        await UpdateFunc(notify, message);
+                    });
                 if (!await WaitForTcp(_sniPlan.LocalPort, _sniSpoofingService))
                     throw new InvalidOperationException("The SNI helper failed to open its local port.");
                 await UpdateFunc(false, $"SNI spoofing enabled · {_sniPlan.Decoy}");
@@ -322,6 +327,7 @@ public class CoreManager
         _sniSpoofingService = null;
         _sniPlan = null;
         await StopProcess(sni);
+        if (sni != null) Logging.SaveLog("SNI helper stopped; its local forwarding endpoint has been removed.");
         // Use the running context, not the already changed UI setting. Otherwise
         // turning TUN off leaves its adapter/routes behind during the next start.
         if (removeTun && Utils.IsWindows())
@@ -356,9 +362,10 @@ public class CoreManager
         if (_dpiFailureFunc != null) await _dpiFailureFunc(message);
     }
 
-    private async Task<ProcessService> StartCompanion(string binary, string arguments, Dictionary<string, string>? environment = null)
+    private async Task<ProcessService> StartCompanion(string binary, string arguments, Dictionary<string, string>? environment = null,
+        Func<bool, string, Task>? updateFunc = null)
     {
-        var process = new ProcessService(binary, arguments, Utils.GetBinConfigPath(), true, false, environment, UpdateFunc);
+        var process = new ProcessService(binary, arguments, Utils.GetBinConfigPath(), true, false, environment, updateFunc ?? UpdateFunc);
         try
         {
             await process.StartAsync();

@@ -7,10 +7,11 @@ public static class ConnectionHandler
     /// <summary>
     /// Runs ping and IP checks.
     /// </summary>
-    public static async Task<AvailabilityCheckResult> RunAvailabilityCheck()
+    public static async Task<AvailabilityCheckResult> RunAvailabilityCheck(CancellationToken cancellationToken = default)
     {
-        var time = await GetRealPingTimeInfo();
-        var ip = time > 0 ? await GetIPInfo() : Global.None;
+        cancellationToken.ThrowIfCancellationRequested();
+        var time = await GetRealPingTimeInfo(cancellationToken);
+        var ip = time > 0 ? await GetIPInfo(cancellationToken) : Global.None;
 
         return new AvailabilityCheckResult(time, ip);
     }
@@ -18,18 +19,18 @@ public static class ConnectionHandler
     /// <summary>
     /// Gets IP information using the default local proxy.
     /// </summary>
-    private static async Task<string?> GetIPInfo()
+    private static async Task<string?> GetIPInfo(CancellationToken cancellationToken)
     {
         var webProxy = await GetWebProxy();
 
-        var ipInfo = await GetIPInfo(webProxy);
+        var ipInfo = await GetIPInfo(webProxy, cancellationToken);
         return ipInfo?.ToString() ?? Global.None;
     }
 
     /// <summary>
     /// Measures real ping time using configured test URL.
     /// </summary>
-    private static async Task<int> GetRealPingTimeInfo()
+    private static async Task<int> GetRealPingTimeInfo(CancellationToken cancellationToken)
     {
         var responseTime = -1;
         try
@@ -38,13 +39,17 @@ public static class ConnectionHandler
 
             for (var i = 0; i < 2; i++)
             {
-                responseTime = await GetRealPingTime(webProxy);
+                responseTime = await GetRealPingTime(webProxy, cancellationToken);
                 if (responseTime > 0)
                 {
                     break;
                 }
-                await Task.Delay(500);
+                await Task.Delay(500, cancellationToken);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

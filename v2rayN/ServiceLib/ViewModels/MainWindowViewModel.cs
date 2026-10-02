@@ -998,6 +998,8 @@ public partial class MainWindowViewModel : MyReactiveObject
     public async Task Reload()
     {
         var generation = Interlocked.Increment(ref _reloadGeneration);
+        StatusBarViewModel.CancelAvailabilityChecks();
+        ProfilesViewModel.ServerSpeedtestStop();
         //If there are unfinished reload job, marked with next job.
         if (!await _reloadSemaphore.WaitAsync(0))
         {
