@@ -638,6 +638,14 @@ public class CoreManager
                         if (IPAddress.TryParse(addressToExclude, out var address)) upstreamAddresses = [address];
                         else upstreamAddresses = await Dns.GetHostAddressesAsync(addressToExclude);
                     }
+                    // ECH must be fetched before the proxy TLS connection can start.
+                    // Exclude its resolver from TUN even if process lookup is unavailable.
+                    if (TunBootstrapService.EchResolverHost(upstream?.EchConfigList) is { } echHost)
+                    {
+                        var echAddresses = IPAddress.TryParse(echHost, out var echAddress)
+                            ? new[] { echAddress } : await Dns.GetHostAddressesAsync(echHost);
+                        upstreamAddresses = [.. upstreamAddresses, .. echAddresses];
+                    }
                     await File.WriteAllTextAsync(fileName,
                         PsiphonConfigService.SimplifyTunFrontend(await File.ReadAllTextAsync(fileName), upstreamAddresses,
                             preserveRuleSets: !isPsiphon && mainNode.IndexId != ServerlessConfigService.NodeId));

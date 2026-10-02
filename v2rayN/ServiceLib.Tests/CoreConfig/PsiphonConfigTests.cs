@@ -83,7 +83,10 @@ public class PsiphonConfigTests
         var rules = JsonNode.Parse(PsiphonConfigService.SimplifyTunFrontend(source))!
             ["route"]!["rules"]!.AsArray();
         await rules[0]!["outbound"]!.GetValue<string>().Should().BeEqualTo("direct");
-        await rules[0]!["process_path"]!.AsArray().Count.Should().BeEqualTo(2);
+        await rules[1]!["outbound"]!.GetValue<string>().Should().BeEqualTo("direct");
+        await rules[1]!["process_path"]!.AsArray().Count.Should().BeEqualTo(2);
+        await (rules[0]!["process_path"] == null).Should().BeTrue();
+        await (rules[1]!["process_name"] == null).Should().BeTrue();
         await rules[0]!["process_name"]![0]!.GetValue<string>().Should().BeEqualTo("xray.exe");
     }
 

@@ -2,6 +2,29 @@ namespace ServiceLib.Tests.Manager;
 
 public class DpiConfigTests
 {
+    [Test]
+    [Arguments("https://8.8.8.8/dns-query", "8.8.8.8")]
+    [Arguments("ech.example+https://resolver.example/dns-query", "resolver.example")]
+    [Arguments("https://resolver.example/dns-query?token=a+b", "resolver.example")]
+    [Arguments("AEX+DQBBwwAgACB94MZ", null)]
+    [Arguments("", null)]
+    public async Task EchBootstrapProtectsResolverInsteadOfQueryIdentity(string value, string? expected)
+    {
+        await TunBootstrapService.EchResolverHost(value).Should().BeEqualTo(expected);
+    }
+
+    [Test]
+    public async Task TunProcessNameFallbackDoesNotRequireExactPathMatch()
+    {
+        var source = """{"route":{"rules":[{"action":"sniff"},{"outbound":"direct","process_path":["C:/app/xray.exe"],"process_name":["xray.exe"]}]},"inbounds":[{"type":"tun"}]}""";
+        var result = JsonNode.Parse(PsiphonConfigService.SimplifyTunFrontend(source, [IPAddress.Parse("8.8.8.8")], true))!;
+        var rules = result["route"]!["rules"]!;
+        await rules[0]!["process_name"]![0]!.GetValue<string>().Should().BeEqualTo("xray.exe");
+        await (rules[0]!["process_path"] == null).Should().BeTrue();
+        await (rules[1]!["process_name"] == null).Should().BeTrue();
+        await result["inbounds"]![0]!["route_exclude_address"]![0]!.GetValue<string>().Should().BeEqualTo("8.8.8.8/32");
+    }
+
     private static ProfileItem Node(EConfigType type = EConfigType.VLESS) => new()
     {
         ConfigType = type, StreamSecurity = "tls", Address = "real.example.com", Port = 443,

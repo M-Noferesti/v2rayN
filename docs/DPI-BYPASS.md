@@ -40,6 +40,8 @@ While SNI or CF is enabled, **Test real delay** measures the live active connect
 
 Changing modes or reloading cancels pending connection checks and discards results from older batch tests. This prevents a test from the previous connection from overwriting the new connection's delay. SNI helper messages, including injection/ACK failures and shutdown, are saved in the dated file under `guiLogs` when application logging is enabled. A blue button confirms the mode is enabled; a successful real delay or website request confirms connectivity.
 
+For Xray profiles with an ECH query URL, the legacy TUN frontend excludes the ECH resolver's addresses as well as the upstream server's addresses. The ECH lookup must complete before the proxy TLS connection can start, so routing that lookup through the same proxy creates a bootstrap loop. Process-name and process-path bypasses are separate rules so an executable path mismatch does not also defeat the name fallback.
+
 ## Sources and licenses
 
 - [SNI-Spoofing-Go](https://github.com/aleskxyz/SNI-Spoofing-Go) — GPL-3.0, release v0.7.2; binary license included by the installer.

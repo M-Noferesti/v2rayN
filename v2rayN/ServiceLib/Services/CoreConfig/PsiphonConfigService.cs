@@ -111,14 +111,15 @@ public static class PsiphonConfigService
                     && rule["process_path"] is JsonArray);
                 if (coreBypass != null)
                 {
-                    if (coreBypass["process_name"] == null && coreBypass["process_path"] is JsonArray paths)
-                    {
-                        coreBypass["process_name"] = new JsonArray(paths
-                            .Select(path => JsonValue.Create(Path.GetFileName(path?.GetValue<string>())))
-                            .ToArray());
-                    }
+                    // Different rule fields are ANDed. A process-name fallback must be
+                    // independent of the exact path (including its case on Windows).
+                    var names = coreBypass["process_name"]?.DeepClone() ?? new JsonArray(
+                        ((JsonArray)coreBypass["process_path"]!).Select(path =>
+                            JsonValue.Create(Path.GetFileName(path?.GetValue<string>()))).ToArray());
+                    coreBypass.AsObject().Remove("process_name");
                     rules.Remove(coreBypass);
                     rules.Insert(0, coreBypass);
+                    rules.Insert(0, new JsonObject { ["outbound"] = "direct", ["process_name"] = names });
                 }
             }
         }
