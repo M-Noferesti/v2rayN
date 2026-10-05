@@ -46,6 +46,9 @@ For Xray profiles with an ECH query URL, the legacy TUN frontend excludes the EC
 
 ## Sources and licenses
 
+- [Psiphon tunnel core binaries](https://github.com/Psiphon-Labs/psiphon-tunnel-core-binaries/tree/ac76234f4b058dfe9abc926111abef168a4a8624) — official Windows console client, bundled as `bin/Psiphon/psiphon-tunnel-core.exe`; GPL-3.0. [Corresponding tunnel-core source](https://github.com/Psiphon-Labs/psiphon-tunnel-core).
+- [sing-box v1.14.1](https://github.com/SagerNet/sing-box/releases/tag/v1.14.1) — regular proxy/TUN frontend; upstream license included.
+- [Xray-core v26.3.27](https://github.com/XTLS/Xray-core/releases/tag/v26.3.27) — regular proxy core; upstream license and routing assets included.
 - [SNI-Spoofing-Go](https://github.com/aleskxyz/SNI-Spoofing-Go) — GPL-3.0, release v0.7.2; binary license included by the installer.
 - [Serverless-for-Iran](https://github.com/patterniha/Serverless-for-Iran) — GPL-3.0, embedded `Serverless-v51-fragA/B` snapshots; original credits retained.
 - [PattN](https://github.com/patterniha/PattN) and the user's supplied guide — source of the Cloudflare preset values.
