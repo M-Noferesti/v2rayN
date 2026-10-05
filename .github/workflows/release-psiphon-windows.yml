@@ -1,0 +1,83 @@
+name: Release Windows with Psiphon support
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag
+        required: true
+        default: v7.25.2-psiphon.1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: psiphon-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish self-contained Windows x64 app
+        shell: pwsh
+        run: |
+          dotnet publish v2rayN/v2rayN/v2rayN.csproj -c Release -r win-x64 --self-contained true -o release-app
+          if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
+      - name: Install public runtime assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest 'https://github.com/2dust/v2rayN-core-bin/raw/refs/heads/master/v2rayN-windows-64.zip' -OutFile cores.zip
+          Expand-Archive cores.zip -DestinationPath core-bundle
+          $core = Get-ChildItem core-bundle -Directory -Recurse | Where-Object { $_.Name -eq 'bin' -and (Test-Path (Join-Path $_.FullName 'Xray')) } | Select-Object -First 1
+          if (-not $core) { throw 'Core bundle does not contain bin/Xray' }
+          $coreRoot = $core.FullName
+          # Keep the regular Xray version separate from the Finalmask runtime.
+          Invoke-WebRequest 'https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-windows-64.zip' -OutFile regular-xray.zip
+          Expand-Archive regular-xray.zip -DestinationPath (Join-Path $coreRoot 'Xray') -Force
+          Invoke-WebRequest 'https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-windows-amd64.zip' -OutFile sing-box.zip
+          Expand-Archive sing-box.zip -DestinationPath regular-sing-box
+          $sing = Get-ChildItem regular-sing-box -Filter sing-box.exe -Recurse | Select-Object -First 1
+          if (-not $sing) { throw 'sing-box executable missing' }
+          Copy-Item -Path (Join-Path $sing.DirectoryName '*') -Destination (Join-Path $coreRoot 'sing_box') -Force
+          New-Item -ItemType Directory -Path (Join-Path $coreRoot 'Psiphon') -Force | Out-Null
+          $psiphonSource = 'https://raw.githubusercontent.com/Psiphon-Labs/psiphon-tunnel-core-binaries/ac76234f4b058dfe9abc926111abef168a4a8624'
+          Invoke-WebRequest "$psiphonSource/windows/psiphon-tunnel-core-i686.exe" -OutFile (Join-Path $coreRoot 'Psiphon/psiphon-tunnel-core.exe')
+          Invoke-WebRequest "$psiphonSource/LICENSE" -OutFile (Join-Path $coreRoot 'Psiphon/LICENSE')
+          ./scripts/Install-DpiRuntimes.ps1 -Destination $core.Parent.FullName -Architecture x64
+          $coreRoot | Set-Content core-path.txt
+      - name: Package clean application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./scripts/Package-WindowsRelease.ps1 -PublishDirectory release-app -CoreDirectory (Get-Content core-path.txt).Trim() -OutputDirectory dist/v2rayN-Psiphon-Windows-x64
+          "Source: https://github.com/$env:GITHUB_REPOSITORY/tree/$env:GITHUB_SHA" | Set-Content dist/v2rayN-Psiphon-Windows-x64/BUILD-INFO.txt
+          $files = Get-ChildItem dist/v2rayN-Psiphon-Windows-x64 -Recurse -File
+          if ($files | Where-Object { $_.Extension -in @('.json', '.db', '.log') -or $_.FullName -match 'guiConfigs|guiLogs|binConfigs|cache' }) { throw 'Unexpected application data in release' }
+          Compress-Archive dist/v2rayN-Psiphon-Windows-x64 -DestinationPath dist/v2rayN-Psiphon-Windows-x64.zip -CompressionLevel Optimal
+          $hash = (Get-FileHash dist/v2rayN-Psiphon-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  v2rayN-Psiphon-Windows-x64.zip" | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+      - name: Publish release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $releases = gh api "repos/$env:GITHUB_REPOSITORY/releases" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read releases' }
+          $existing = $releases | Where-Object tag_name -eq $env:RELEASE_TAG
+          if ($existing -and -not $existing.draft) { throw 'This release is already public; choose a new tag' }
+          if (-not $existing) {
+            gh release create $env:RELEASE_TAG --draft --target $env:GITHUB_SHA --title 'v2rayN Psiphon Support — Windows x64' --notes 'Download the Windows ZIP, extract the entire folder and run v2rayN.exe. Import your own profiles. .NET, Psiphon, SNI, Serverless and CF runtimes are included. See README.md and docs/DPI-BYPASS.md for usage. Windows x64 only; unsigned build.'
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot create draft release' }
+          }
+          gh release upload $env:RELEASE_TAG dist/v2rayN-Psiphon-Windows-x64.zip dist/SHA256SUMS.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot upload release assets' }
+          gh release edit $env:RELEASE_TAG --draft=false --latest --target $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot publish release' }
