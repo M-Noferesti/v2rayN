@@ -238,4 +238,34 @@ public class PsiphonConfigTests
         await ServiceLib.Manager.CoreManager.PsiphonNeedsRestart(true, false, 2, null, now).Should().BeTrue();
         await ServiceLib.Manager.CoreManager.PsiphonNeedsRestart(true, false, 1, null, now).Should().BeFalse();
     }
+
+    private const string CdnSource = """{"PropagationChannelId":"A","SponsorId":"B"}""";
+
+    [Test]
+    public async Task CdnModeAddsFrontingOverridesAndLimitsProtocols()
+    {
+        var config = PsiphonCdnFronting.BuildDialOverrides("Example.COM.");
+        await config.Count.Should().BeEqualTo(11);
+        await config[2]!["SNIServerName"]!.GetValue<string>().Should().BeEqualTo("example.com");
+
+        var json = JsonNode.Parse(CdnSource)!.AsObject();
+        PsiphonCdnFronting.Apply(json, new PsiphonCdnOptions("cdn", "1.2.3.4, 10.0.0.0/8 bad", "cdn.example.com"));
+        await json["FrontedMeekDialOverridesProbability"]!.GetValue<double>().Should().BeEqualTo(1.0);
+        await json["LimitTunnelProtocols"]!.AsArray().Count.Should().BeEqualTo(3);
+        await json["FrontedMeekCDNScanSpec"]!["IPCandidates"]!.AsArray().Count.Should().BeEqualTo(2);
+        await json["DisableTactics"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Test]
+    public async Task AutoModeDoesNotLimitProtocolsAndNormalModeChangesNothing()
+    {
+        var auto = JsonNode.Parse(CdnSource)!.AsObject();
+        PsiphonCdnFronting.Apply(auto, new PsiphonCdnOptions("auto", null, null));
+        await (auto["FrontedMeekDialOverrides"] != null).Should().BeTrue();
+        await (auto["LimitTunnelProtocols"] == null).Should().BeTrue();
+
+        var normal = JsonNode.Parse(CdnSource)!.AsObject();
+        PsiphonCdnFronting.Apply(normal, new PsiphonCdnOptions("", "1.2.3.4", "x.com"));
+        await normal.ToJsonString().Should().BeEqualTo(JsonNode.Parse(CdnSource)!.ToJsonString());
+    }
 }

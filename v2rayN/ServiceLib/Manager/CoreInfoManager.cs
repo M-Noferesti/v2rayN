@@ -106,7 +106,7 @@ public sealed class CoreInfoManager
             new CoreInfo
                 {
                     CoreType = ECoreType.Psiphon,
-                    CoreExes = ["psiphon-tunnel-core", "psiphon-tunnel-core-i686"],
+                    CoreExes = ["psiphon-tunnel-core-cdn", "psiphon-tunnel-core", "psiphon-tunnel-core-i686"],
                     Arguments = "-config {0}",
                     AbsolutePath = true,
                     VersionArg = "-version",

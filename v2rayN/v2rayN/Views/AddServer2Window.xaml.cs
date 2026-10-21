@@ -26,6 +26,9 @@ public partial class AddServer2Window
             cmbPsiphonRegion.ItemsSource = ViewModel.PsiphonRegions;
             cmbPsiphonUpstream.ItemsSource = ViewModel.PsiphonUpstreamProfiles;
             this.Bind(ViewModel, vm => vm.PsiphonRegion, v => v.cmbPsiphonRegion.SelectedValue).DisposeWith(disposables);
+            this.Bind(ViewModel, vm => vm.PsiphonCdnMode, v => v.cmbPsiphonCdnMode.SelectedValue).DisposeWith(disposables);
+            this.Bind(ViewModel, vm => vm.PsiphonCdnIps, v => v.txtPsiphonCdnIps.Text).DisposeWith(disposables);
+            this.Bind(ViewModel, vm => vm.PsiphonCdnSni, v => v.txtPsiphonCdnSni.Text).DisposeWith(disposables);
             this.Bind(ViewModel, vm => vm.PsiphonUseUpstream, v => v.chkPsiphonUpstream.IsChecked).DisposeWith(disposables);
             this.Bind(ViewModel, vm => vm.PsiphonUpstreamProfileId, v => v.cmbPsiphonUpstream.SelectedValue).DisposeWith(disposables);
             this.Bind(ViewModel, vm => vm.PsiphonUpstreamPort, v => v.txtPsiphonUpstreamPort.Text).DisposeWith(disposables);

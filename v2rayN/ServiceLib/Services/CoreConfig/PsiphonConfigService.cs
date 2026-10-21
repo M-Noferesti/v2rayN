@@ -168,7 +168,7 @@ public static class PsiphonConfigService
         rules.Insert(0, new JsonObject { ["domain"] = names, ["server"] = PinnedHostsTag });
     }
 
-    public static JsonObject CreateConfig(string source, string? region, int port, string dataDirectory, int? upstreamPort = null)
+    public static JsonObject CreateConfig(string source, string? region, int port, string dataDirectory, int? upstreamPort = null, PsiphonCdnOptions? cdn = null)
     {
         var config = JsonNode.Parse(source) as JsonObject
             ?? throw new ArgumentException("The Psiphon configuration must be a JSON object.");
@@ -216,6 +216,11 @@ public static class PsiphonConfigService
         {
             config["DNSResolverAlternateServers"] = new JsonArray("1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4");
         }
+        if (cdn is { Enabled: true } && !PsiphonCdnFronting.EngineAvailable())
+        {
+            throw new ArgumentException("CDN fronting needs the modified engine (bin\\Psiphon\\psiphon-tunnel-core-cdn.exe).");
+        }
+        PsiphonCdnFronting.Apply(config, cdn);
         config["EmitDiagnosticNotices"] = false;
         config["EmitDiagnosticNetworkParameters"] = false;
         return config;
@@ -231,7 +236,8 @@ public static class PsiphonConfigService
             Directory.CreateDirectory(dataPath);
             var config = CreateConfig(await File.ReadAllTextAsync(sourcePath),
                 node.GetProtocolExtra().PsiphonRegion, node.PreSocksPort ?? 0, dataPath,
-                node.GetProtocolExtra().PsiphonUseUpstream == true ? node.GetProtocolExtra().PsiphonUpstreamPort ?? 1089 : null);
+                node.GetProtocolExtra().PsiphonUseUpstream == true ? node.GetProtocolExtra().PsiphonUpstreamPort ?? 1089 : null,
+                new PsiphonCdnOptions(node.GetProtocolExtra().PsiphonCdnMode, node.GetProtocolExtra().PsiphonCdnIps, node.GetProtocolExtra().PsiphonCdnSni));
             if (node.PreSocksPort == AppManager.Instance.GetLocalPort(EInboundProtocol.socks))
             {
                 return new RetResult { Msg = "The Psiphon SOCKS port must differ from v2rayN's local listening port." };

@@ -262,6 +262,17 @@
                     <TextBlock Text="Exit country" Margin="0,4" />
                     <ComboBox x:Name="cmbPsiphonRegion" DisplayMemberPath="Name" SelectedValuePath="Code" Width="350" HorizontalAlignment="Left" />
                     <TextBlock Text="Country requests depend on reachable Psiphon servers. Automatic chooses the best available." TextWrapping="Wrap" Margin="0,4" />
+                    <TextBlock Text="Connection mode" Margin="0,12,0,4" />
+                    <ComboBox x:Name="cmbPsiphonCdnMode" SelectedValuePath="Tag" Width="350" HorizontalAlignment="Left">
+                        <ComboBoxItem Content="Normal (default Psiphon behaviour)" Tag="" />
+                        <ComboBoxItem Content="Auto + CDN fronting" Tag="auto" />
+                        <ComboBoxItem Content="CDN fronting only" Tag="cdn" />
+                    </ComboBox>
+                    <TextBlock Text="CDN fronting needs the modified engine bin\Psiphon\psiphon-tunnel-core-cdn.exe. Optional: your own CDN IPs/CIDRs (one per line or comma-separated) and SNI hostnames." TextWrapping="Wrap" Margin="0,4" />
+                    <TextBlock Text="Custom CDN IPs" Margin="0,4" />
+                    <TextBox x:Name="txtPsiphonCdnIps" Width="350" Height="60" AcceptsReturn="True" TextWrapping="Wrap" HorizontalAlignment="Left" />
+                    <TextBlock Text="Custom SNI" Margin="0,4" />
+                    <TextBox x:Name="txtPsiphonCdnSni" Width="350" HorizontalAlignment="Left" />
                     <CheckBox x:Name="chkPsiphonUpstream" Content="Connect through a V2Ray profile" Margin="0,8" />
                     <TextBlock Text="Upstream profile (used when the switch is on)" Margin="0,4" />
                     <ComboBox x:Name="cmbPsiphonUpstream" DisplayMemberPath="Remarks" SelectedValuePath="IndexId" Width="350" HorizontalAlignment="Left" />

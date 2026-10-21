@@ -33,6 +33,15 @@ public partial class AddServer2ViewModel : MyReactiveObject, ICloseable
     [Reactive]
     public partial int PsiphonUpstreamPort { get; set; } = 1089;
 
+    [Reactive]
+    public partial string PsiphonCdnMode { get; set; } = "";
+
+    [Reactive]
+    public partial string PsiphonCdnIps { get; set; } = "";
+
+    [Reactive]
+    public partial string PsiphonCdnSni { get; set; } = "";
+
     public ObservableCollection<ProfileItem> PsiphonUpstreamProfiles { get; } = [];
 
     public async Task LoadPsiphonProfiles()
@@ -105,6 +114,9 @@ public partial class AddServer2ViewModel : MyReactiveObject, ICloseable
         CoreType = coreStr;
         PsiphonRegion = SelectedSource?.GetProtocolExtra()?.PsiphonRegion ?? "";
         PsiphonUseUpstream = SelectedSource?.GetProtocolExtra()?.PsiphonUseUpstream ?? false;
+        PsiphonCdnMode = SelectedSource?.GetProtocolExtra()?.PsiphonCdnMode ?? "";
+        PsiphonCdnIps = SelectedSource?.GetProtocolExtra()?.PsiphonCdnIps ?? "";
+        PsiphonCdnSni = SelectedSource?.GetProtocolExtra()?.PsiphonCdnSni ?? "";
         PsiphonUpstreamProfileId = SelectedSource?.GetProtocolExtra()?.PsiphonUpstreamProfileId;
         PsiphonUpstreamPort = SelectedSource?.GetProtocolExtra()?.PsiphonUpstreamPort ?? PsiphonConfigService.FindAvailablePort();
         if (SelectedSource?.GetProtocolExtra()?.PsiphonRegion == null && CoreType == nameof(ECoreType.Psiphon))
@@ -150,7 +162,8 @@ public partial class AddServer2ViewModel : MyReactiveObject, ICloseable
                 var path = File.Exists(SelectedSource.Address) ? SelectedSource.Address : Utils.GetConfigPath(SelectedSource.Address);
                 PsiphonConfigService.CreateConfig(await File.ReadAllTextAsync(path), PsiphonRegion,
                     SelectedSource.PreSocksPort ?? 0, Utils.GetBinConfigPath("psiphon-data"),
-                    PsiphonUseUpstream ? PsiphonUpstreamPort : null);
+                    PsiphonUseUpstream ? PsiphonUpstreamPort : null,
+                    new PsiphonCdnOptions(PsiphonCdnMode, PsiphonCdnIps, PsiphonCdnSni));
                 if (PsiphonUseUpstream && string.IsNullOrWhiteSpace(PsiphonUpstreamProfileId))
                 {
                     throw new ArgumentException("Choose an upstream V2Ray profile.");
@@ -168,6 +181,9 @@ public partial class AddServer2ViewModel : MyReactiveObject, ICloseable
             PsiphonUseUpstream = PsiphonUseUpstream,
             PsiphonUpstreamProfileId = PsiphonUpstreamProfileId,
             PsiphonUpstreamPort = PsiphonUpstreamPort,
+            PsiphonCdnMode = PsiphonCdnMode,
+            PsiphonCdnIps = PsiphonCdnIps,
+            PsiphonCdnSni = PsiphonCdnSni,
             IsSingboxEndpoint = IsSingboxEndpoint ? true : null,
         });
 

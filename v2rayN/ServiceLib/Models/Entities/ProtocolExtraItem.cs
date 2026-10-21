@@ -7,6 +7,10 @@ public record ProtocolExtraItem
     public bool? PsiphonUseUpstream { get; init; }
     public string? PsiphonUpstreamProfileId { get; init; }
     public int? PsiphonUpstreamPort { get; init; }
+    // ""/"normal" = stock behaviour, "auto" = CDN fronting added, "cdn" = CDN fronting only.
+    public string? PsiphonCdnMode { get; init; }
+    public string? PsiphonCdnIps { get; init; }
+    public string? PsiphonCdnSni { get; init; }
     public bool? Uot { get; init; }
     public string? CongestionControl { get; init; }
 
