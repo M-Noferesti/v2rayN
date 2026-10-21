@@ -5,6 +5,9 @@ public class ProfileExManager
     private static readonly Lazy<ProfileExManager> _instance = new(() => new());
     private ConcurrentBag<ProfileExItem> _lstProfileEx = [];
     private readonly Queue<string> _queIndexIds = new();
+    // Delay and speed tests finish on many threads at once; Queue<T> is not thread-safe.
+    private readonly Lock _queLock = new();
+    private readonly Lock _profileLock = new();
     public static ProfileExManager Instance => _instance.Value;
     private static readonly string _tag = "ProfileExHandler";
 
@@ -32,24 +35,35 @@ public class ProfileExManager
 
     private void IndexIdEnqueue(string indexId)
     {
-        if (indexId.IsNotEmpty() && !_queIndexIds.Contains(indexId))
+        if (indexId.IsNullOrEmpty())
         {
-            _queIndexIds.Enqueue(indexId);
+            return;
+        }
+        lock (_queLock)
+        {
+            if (!_queIndexIds.Contains(indexId))
+            {
+                _queIndexIds.Enqueue(indexId);
+            }
         }
     }
 
     private async Task SaveQueueIndexIds()
     {
-        var cnt = _queIndexIds.Count;
-        if (cnt > 0)
+        List<string> ids;
+        lock (_queLock)
+        {
+            ids = [.. _queIndexIds];
+            _queIndexIds.Clear();
+        }
+        if (ids.Count > 0)
         {
             var lstExists = await SQLiteHelper.Instance.TableAsync<ProfileExItem>().ToListAsync();
             List<ProfileExItem> lstInserts = [];
             List<ProfileExItem> lstUpdates = [];
 
-            for (var i = 0; i < cnt; i++)
+            foreach (var id in ids)
             {
-                var id = _queIndexIds.Dequeue();
                 var item = lstExists.FirstOrDefault(t => t.IndexId == id);
                 var itemNew = _lstProfileEx?.FirstOrDefault(t => t.IndexId == id);
                 if (itemNew is null)
@@ -103,7 +117,16 @@ public class ProfileExManager
 
     private ProfileExItem GetProfileExItem(string? indexId)
     {
-        return _lstProfileEx.FirstOrDefault(t => t.IndexId == indexId) ?? AddProfileEx(indexId);
+        var existing = _lstProfileEx.FirstOrDefault(t => t.IndexId == indexId);
+        if (existing != null)
+        {
+            return existing;
+        }
+        // Check again under a lock so two tests finishing together cannot add duplicate entries.
+        lock (_profileLock)
+        {
+            return _lstProfileEx.FirstOrDefault(t => t.IndexId == indexId) ?? AddProfileEx(indexId);
+        }
     }
 
     public async Task ClearAll()
