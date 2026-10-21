@@ -22,12 +22,54 @@ public static class CloudflareFragmentService
         Validate(node, cleanIp);
         var json = JsonNode.Parse(source)!.AsObject();
         var outbound = (json["outbounds"] as JsonArray)?.FirstOrDefault(o => o?["tag"]?.GetValue<string>() == Global.ProxyTag);
+        if (!ApplyToOutbound(outbound, node, cleanIp))
+            throw new ArgumentException("Cloudflare Fragment supports a single active config, without custom templates or proxy chains.");
+        return json.ToJsonString(new() { WriteIndented = true });
+    }
+
+    public static bool IsEligible(ProfileItem node, string? cleanIp)
+    {
+        try
+        {
+            Validate(node, cleanIp);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    // The preset needs Xray's finalmask support, which only the Serverless runtime bundle has.
+    public static bool CanApplyToSpeedtest(Config config) =>
+        config.CloudflareFragment && File.Exists(ServerlessConfigService.BinaryPath);
+
+    // Delay tests put every profile in one config, each behind an outbound tagged proxy{port}.
+    // Apply the same preset as the live connection to each eligible profile and leave the rest
+    // unchanged, so the test measures what the running connection would actually do.
+    public static string ApplyToSpeedtest(string source, IEnumerable<ServerTestItem> items, string? cleanIp)
+    {
+        var json = JsonNode.Parse(source)!.AsObject();
+        if (json["outbounds"] is not JsonArray outbounds) return source;
+        foreach (var item in items)
+        {
+            var node = item.Profile;
+            if (node == null || item.Port <= 0 || !IsEligible(node, cleanIp)) continue;
+            var tag = Global.ProxyTag + item.Port;
+            var matches = outbounds.Where(o => o?["tag"]?.GetValue<string>() == tag).ToList();
+            if (matches.Count == 1) ApplyToOutbound(matches[0], node, cleanIp);
+        }
+        return json.ToJsonString(new() { WriteIndented = true });
+    }
+
+    private static bool ApplyToOutbound(JsonNode? outbound, ProfileItem node, string? cleanIp)
+    {
         var stream = outbound?["streamSettings"];
         var tls = stream?["tlsSettings"];
         var server = SniSpoofingService.FindServer(outbound, node.ConfigType);
         if (outbound?["protocol"]?.GetValue<string>() is not ("vless" or "trojan") || tls == null
             || server?["address"]?.GetValue<string>() != node.Address)
-            throw new ArgumentException("Cloudflare Fragment supports a single active config, without custom templates or proxy chains.");
+            return false;
         if (string.IsNullOrEmpty(tls["serverName"]?.GetValue<string>())) tls["serverName"] = node.Address;
         tls["fingerprint"] = "unsafe";
         tls["alpn"] = new JsonArray("http/1.1");
@@ -35,6 +77,6 @@ public static class CloudflareFragmentService
         stream!["finalmask"] = JsonNode.Parse(Finalmask);
         if (stream["sockopt"] is JsonObject sockopt) sockopt.Remove("dialerProxy");
         if (!string.IsNullOrWhiteSpace(cleanIp)) server!["address"] = cleanIp;
-        return json.ToJsonString(new() { WriteIndented = true });
+        return true;
     }
 }

@@ -132,6 +132,10 @@ public static class CoreConfigHandler
         {
             return result;
         }
+        if (coreType == ECoreType.Xray && CloudflareFragmentService.CanApplyToSpeedtest(config))
+        {
+            result.Data = CloudflareFragmentService.ApplyToSpeedtest(result.Data!.ToString()!, selecteds, config.SniSpoofing.CloudflareAddress);
+        }
         await File.WriteAllTextAsync(fileName, result.Data.ToString());
         return result;
     }
@@ -154,6 +158,12 @@ public static class CoreConfigHandler
         if (result.Success != true)
         {
             return result;
+        }
+        if (context.RunCoreType == ECoreType.Xray && CloudflareFragmentService.CanApplyToSpeedtest(config)
+            && CloudflareFragmentService.IsEligible(context.Node, config.SniSpoofing.CloudflareAddress))
+        {
+            try { result.Data = CloudflareFragmentService.Apply(result.Data!.ToString()!, context.Node, config.SniSpoofing.CloudflareAddress); }
+            catch (ArgumentException ex) { Logging.SaveLog(_tag, ex); }
         }
 
         await File.WriteAllTextAsync(fileName, result.Data.ToString());

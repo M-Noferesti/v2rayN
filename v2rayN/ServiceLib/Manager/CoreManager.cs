@@ -262,8 +262,30 @@ public class CoreManager
         await UpdateFunc(false, string.Format(ResUI.StartService, DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss")));
         await UpdateFunc(false, configPath);
 
+        if (coreType == ECoreType.Xray && CloudflareFragmentService.CanApplyToSpeedtest(_config))
+        {
+            return await StartFragmentSpeedtest(fileName);
+        }
         var coreInfo = CoreInfoManager.Instance.GetCoreInfo(coreType);
         return await RunProcess(coreInfo, fileName, true, false);
+    }
+
+    // Delay tests with the Cloudflare Fragment preset need the same finalmask-capable runtime as
+    // the live connection; the bundled Xray would ignore the fragment settings.
+    private async Task<ProcessService?> StartFragmentSpeedtest(string fileName)
+    {
+        try
+        {
+            return await StartCompanion(ServerlessConfigService.BinaryPath,
+                $"run -c {Utils.GetBinConfigPath(fileName).AppendQuotes()}",
+                new() { ["XRAY_LOCATION_ASSET"] = Path.GetDirectoryName(ServerlessConfigService.BinaryPath)! });
+        }
+        catch (Exception ex)
+        {
+            Logging.SaveLog(_tag, ex);
+            await UpdateFunc(false, ex.Message);
+            return null;
+        }
     }
 
     public async Task<ProcessService?> LoadCoreConfigSpeedtest(ServerTestItem testItem)
@@ -284,6 +306,10 @@ public class CoreManager
         }
 
         var coreType = context.RunCoreType;
+        if (coreType == ECoreType.Xray && CloudflareFragmentService.CanApplyToSpeedtest(_config))
+        {
+            return await StartFragmentSpeedtest(fileName);
+        }
         var coreInfo = CoreInfoManager.Instance.GetCoreInfo(coreType);
         return await RunProcess(coreInfo, fileName, true, false);
     }

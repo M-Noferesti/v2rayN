@@ -162,4 +162,40 @@ public class DpiConfigTests
         await spoofProxy["settings"]!["address"]!.GetValue<string>().Should().BeEqualTo("127.0.0.1");
         await spoofProxy["streamSettings"]!["tlsSettings"]!["serverName"]!.GetValue<string>().Should().BeEqualTo("real.example.com");
     }
+
+    [Test]
+    public async Task CloudflarePresetAppliesToEligibleSpeedtestOutboundsOnly()
+    {
+        var config = CoreConfig.CoreConfigTestFactory.CreateConfig(ECoreType.Xray);
+        CoreConfig.CoreConfigTestFactory.BindAppManagerConfig(config);
+        var node = CoreConfig.CoreConfigTestFactory.CreateVmessNode(ECoreType.Xray);
+        node.ConfigType = EConfigType.VLESS;
+        node.SetProtocolExtra(node.GetProtocolExtra() with { VlessEncryption = "none" });
+        node.StreamSecurity = "tls";
+        node.Sni = "real.example.com";
+        node.Network = "ws";
+        node.Fingerprint = "chrome";
+        var context = CoreConfig.CoreConfigTestFactory.CreateContext(config, node, ECoreType.Xray);
+        var generated = new CoreConfigV2rayService(context).GenerateClientConfigContent();
+        await generated.Success.Should().BeTrue();
+
+        // Shape the config like a delay test: one outbound per profile, tagged proxy{port}.
+        var json = JsonNode.Parse(generated.Data!.ToString()!)!;
+        var outbounds = json["outbounds"]!.AsArray();
+        var proxy = outbounds.First(o => o!["tag"]!.GetValue<string>() == "proxy")!;
+        proxy["tag"] = "proxy20001";
+        var other = proxy.DeepClone();
+        other["tag"] = "proxy20002";
+        outbounds.Add(other);
+        var vmess = CoreConfig.CoreConfigTestFactory.CreateVmessNode(ECoreType.Xray);
+        List<ServerTestItem> items = [new() { Port = 20001, Profile = node }, new() { Port = 20002, Profile = vmess }];
+
+        var patched = JsonNode.Parse(CloudflareFragmentService.ApplyToSpeedtest(json.ToJsonString(), items, null))!;
+        var first = patched["outbounds"]!.AsArray().First(o => o!["tag"]!.GetValue<string>() == "proxy20001")!;
+        var second = patched["outbounds"]!.AsArray().First(o => o!["tag"]!.GetValue<string>() == "proxy20002")!;
+        await JsonNode.DeepEquals(first["streamSettings"]!["finalmask"], JsonNode.Parse(CloudflareFragmentService.Finalmask)).Should().BeTrue();
+        await first["streamSettings"]!["tlsSettings"]!["fingerprint"]!.GetValue<string>().Should().BeEqualTo("unsafe");
+        await (second["streamSettings"]?["finalmask"] == null).Should().BeTrue();
+        await second["streamSettings"]!["tlsSettings"]!["fingerprint"]!.GetValue<string>().Should().BeEqualTo("chrome");
+    }
 }
