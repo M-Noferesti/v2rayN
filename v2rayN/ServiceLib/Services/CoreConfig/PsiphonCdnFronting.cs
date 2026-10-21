@@ -84,7 +84,7 @@ public static class PsiphonCdnFronting
     private static JsonArray ToArray(IEnumerable<string> values) =>
         new(values.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray());
 
-    public static JsonArray BuildDialOverrides(string? customSni)
+    public static JsonArray BuildDialOverrides(string? customSni, string? customIps = null)
     {
         var edgeSni = ParseSni(customSni).FirstOrDefault() ?? "";
         var overrides = new JsonArray
@@ -99,13 +99,25 @@ public static class PsiphonCdnFronting
                 "a.akamaihd.net", "a.akamaihd-staging.net", "www.akamai.com" }.Distinct();
             overrides.Add(Override(id, null, [".*"], ip, sni, verify, ["http/1.1"]));
         }
-        return overrides;
+        // Preserve explicit IP/SNI pairs as dial overrides as well as scan candidates.
+        // The scanner can exhaust its candidates before trying other server entries;
+        // an override remains available for each matching server and authenticates
+        // the certificate against the hostname supplied by the user.
+        var customOverrides = new JsonArray();
+        var index = 0;
+        foreach (var ip in ParseIps(customIps).Where(IsIpv4))
+        foreach (var sni in ParseSni(customSni))
+        {
+            customOverrides.Add(Override($"custom-{++index}", null, [".*"], ip, sni, [sni], ["http/1.1"]));
+        }
+        foreach (var item in overrides) customOverrides.Add(item!.DeepClone());
+        return customOverrides;
     }
 
     public static void Apply(JsonObject config, PsiphonCdnOptions? options)
     {
         if (options is not { Enabled: true }) return;
-        config["FrontedMeekDialOverrides"] = BuildDialOverrides(options.CustomSni);
+        config["FrontedMeekDialOverrides"] = BuildDialOverrides(options.CustomSni, options.CustomIps);
         config["FrontedMeekDialOverridesProbability"] = 1.0;
         config["FrontedMeekCDNScanUseBuiltInSpec"] = true;
         var ips = ParseIps(options.CustomIps);
@@ -116,10 +128,23 @@ public static class PsiphonCdnFronting
             if (snis.Count > 0) spec["SNIServerNames"] = ToArray(snis);
             config["FrontedMeekCDNScanSpec"] = spec;
         }
+        // An explicit host/IP pair is a pinned endpoint, not an open-ended scan.
+        // Keep every attempt on that endpoint so Windows can exclude it from TUN.
+        if (ips.Count > 0 && ips.All(IsIpv4) && ParseSni(options.CustomSni).Count > 0)
+        {
+            var explicitOverrides = new JsonArray();
+            foreach (var item in config["FrontedMeekDialOverrides"]!.AsArray())
+                if (item!["OverrideID"]!.GetValue<string>().StartsWith("custom-"))
+                    explicitOverrides.Add(item.DeepClone());
+            config["FrontedMeekDialOverrides"] = explicitOverrides;
+            config["FrontedMeekCDNScanUseBuiltInSpec"] = false;
+            config.Remove("FrontedMeekCDNScanSpec");
+        }
         if (options.Mode == "cdn")
         {
             config["LimitTunnelProtocols"] = ToArray(CdnTunnelProtocols);
             config["DisableTactics"] = true;
+            config["AggressiveEstablishment"] = true;
         }
     }
 }

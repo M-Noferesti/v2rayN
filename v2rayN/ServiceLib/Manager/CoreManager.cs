@@ -449,6 +449,7 @@ public class CoreManager
 
     private async Task FailPsiphon(string message)
     {
+        Logging.SaveLog($"Psiphon startup/recovery failed: {message}");
         await CoreStop();
         await UpdateFunc(true, message);
         await DisableFailedPsiphon();
@@ -696,6 +697,14 @@ public class CoreManager
                             pinnedHosts[addressToExclude] = upstreamAddresses;
                         }
                     }
+                    // Direct Psiphon dials CDN edges outside its own TUN. Process
+                    // lookup alone cannot protect existing sockets when TUN starts.
+                    if (isPsiphon && upstream == null)
+                    {
+                        var cdnIps = PsiphonCdnFronting.ParseIps(mainNode.GetProtocolExtra().PsiphonCdnIps)
+                            .Where(value => IPAddress.TryParse(value, out _)).Select(IPAddress.Parse);
+                        upstreamAddresses = [.. upstreamAddresses, .. cdnIps];
+                    }
                     // ECH must be fetched before the proxy TLS connection can start.
                     // Exclude its resolver from TUN even if process lookup is unavailable.
                     if (TunBootstrapService.EchResolverHost(upstream?.EchConfigList) is { } echHost)
@@ -729,6 +738,9 @@ public class CoreManager
         try
         {
             var notice = JsonNode.Parse(msg);
+            if (Environment.GetEnvironmentVariable("V2RAYN_PSIPHON_DIAGNOSTICS") == "1"
+                && notice?["noticeType"]?.GetValue<string>() is "Info" or "Alert" or "Error" or "Tunnels" or "ListeningSocksProxyPort" or "ConnectedServerRegion")
+                Logging.SaveLog($"Psiphon diagnostic: {msg}");
             if (notice?["noticeType"]?.GetValue<string>() == "Tunnels")
             {
                 var count = notice["data"]?["count"]?.GetValue<int>() ?? 0;

@@ -257,6 +257,36 @@ public class PsiphonConfigTests
     }
 
     [Test]
+    public async Task CustomCdnIpAndSniRemainPairedForEveryServer()
+    {
+        var json = JsonNode.Parse(CdnSource)!.AsObject();
+        PsiphonCdnFronting.Apply(json, new PsiphonCdnOptions("cdn", "151.101.130.219, 10.0.0.0/8", "Speedtest.NET."));
+        var overrides = json["FrontedMeekDialOverrides"]!.AsArray();
+        await overrides.Count.Should().BeEqualTo(12);
+        var custom = overrides[0]!;
+        await custom["DialAddresses"]![0]!.GetValue<string>().Should().BeEqualTo("151.101.130.219");
+        await custom["SNIServerName"]!.GetValue<string>().Should().BeEqualTo("speedtest.net");
+        await custom["VerifyServerNames"]![0]!.GetValue<string>().Should().BeEqualTo("speedtest.net");
+        await (custom["SkipCertVerify"] == null).Should().BeTrue();
+        await json["AggressiveEstablishment"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ExplicitCdnPairPinsEndpointWithoutScanFallback()
+    {
+        var json = JsonNode.Parse(CdnSource)!.AsObject();
+        PsiphonCdnFronting.Apply(json, new PsiphonCdnOptions("cdn", "151.101.130.219", "speedtest.net"));
+        await json["FrontedMeekDialOverrides"]!.AsArray().Count.Should().BeEqualTo(1);
+        await json["FrontedMeekCDNScanUseBuiltInSpec"]!.GetValue<bool>().Should().BeFalse();
+        await (json["FrontedMeekCDNScanSpec"] == null).Should().BeTrue();
+        var frontend = JsonNode.Parse(PsiphonConfigService.SimplifyTunFrontend(
+            """{"inbounds":[{"type":"tun"}],"route":{"rules":[]}}""",
+            [System.Net.IPAddress.Parse("151.101.130.219")]))!;
+        await frontend["inbounds"]![0]!["route_exclude_address"]![0]!.GetValue<string>()
+            .Should().BeEqualTo("151.101.130.219/32");
+    }
+
+    [Test]
     public async Task AutoModeDoesNotLimitProtocolsAndNormalModeChangesNothing()
     {
         var auto = JsonNode.Parse(CdnSource)!.AsObject();

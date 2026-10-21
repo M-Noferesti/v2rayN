@@ -221,7 +221,7 @@ public static class PsiphonConfigService
             throw new ArgumentException("CDN fronting needs the modified engine (bin\\Psiphon\\psiphon-tunnel-core-cdn.exe).");
         }
         PsiphonCdnFronting.Apply(config, cdn);
-        config["EmitDiagnosticNotices"] = false;
+        config["EmitDiagnosticNotices"] = Environment.GetEnvironmentVariable("V2RAYN_PSIPHON_DIAGNOSTICS") == "1";
         config["EmitDiagnosticNetworkParameters"] = false;
         return config;
     }
